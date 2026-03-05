@@ -1,0 +1,1 @@
+"""MindPulse engagement detection package."""

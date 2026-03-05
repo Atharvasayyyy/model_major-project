@@ -1,0 +1,10 @@
+{
+  "default": {
+    "hr_baseline": 78.0,
+    "rmssd_baseline": 52.0
+  },
+  "U001": {
+    "hr_baseline": 78.0,
+    "rmssd_baseline": 52.0
+  }
+}
