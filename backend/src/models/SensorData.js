@@ -8,6 +8,7 @@ const sensorDataSchema = new mongoose.Schema(
     heart_rate: { type: Number, required: true },
     hrv_rmssd: { type: Number, required: true },
     motion_level: { type: Number, required: true },
+    engagement_score: { type: Number, required: true },
     timestamp: { type: Date, required: true },
   },
   { versionKey: false },

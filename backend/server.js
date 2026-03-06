@@ -8,6 +8,9 @@ const authRoutes = require("./src/routes/authRoutes");
 const childrenRoutes = require("./src/routes/childrenRoutes");
 const baselineRoutes = require("./src/routes/baselineRoutes");
 const sensorDataRoutes = require("./src/routes/sensorDataRoutes");
+const sensorStatusRoutes = require("./src/routes/sensorStatusRoutes");
+const debugRoutes = require("./src/routes/debugRoutes");
+const activityRoutes = require("./src/routes/activityRoutes");
 const analyticsRoutes = require("./src/routes/analyticsRoutes");
 const alertsRoutes = require("./src/routes/alertsRoutes");
 
@@ -41,7 +44,10 @@ app.use("/api", (_req, res, next) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/children", authMiddleware, childrenRoutes);
 app.use("/api/baseline", authMiddleware, baselineRoutes);
-app.use("/api/sensor-data", authMiddleware, sensorDataRoutes);
+app.use("/api/activity", authMiddleware, activityRoutes);
+app.use("/api/sensor-data", sensorDataRoutes);
+app.use("/api/sensor-status", authMiddleware, sensorStatusRoutes);
+app.use("/api/debug", authMiddleware, debugRoutes);
 app.use("/api/analytics", authMiddleware, analyticsRoutes);
 app.use("/api/alerts", authMiddleware, alertsRoutes);
 
