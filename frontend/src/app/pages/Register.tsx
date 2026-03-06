@@ -19,9 +19,9 @@ export const Register = () => {
 
     try {
       await register(name, email, password);
-      navigate("/");
+      navigate("/auth/login");
     } catch (err) {
-      setError("Registration failed");
+      setError(err instanceof Error ? err.message : "Registration failed");
     } finally {
       setLoading(false);
     }
@@ -47,6 +47,7 @@ export const Register = () => {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Enter your full name"
+              autoComplete="name"
               required
               className="w-full bg-gray-800 text-white rounded-lg pl-12 pr-4 py-3 border border-gray-700 focus:border-purple-500 focus:outline-none"
             />
@@ -62,6 +63,7 @@ export const Register = () => {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="Enter your email"
+              autoComplete="email"
               required
               className="w-full bg-gray-800 text-white rounded-lg pl-12 pr-4 py-3 border border-gray-700 focus:border-purple-500 focus:outline-none"
             />
@@ -77,6 +79,7 @@ export const Register = () => {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Create a password"
+              autoComplete="new-password"
               required
               className="w-full bg-gray-800 text-white rounded-lg pl-12 pr-4 py-3 border border-gray-700 focus:border-purple-500 focus:outline-none"
             />

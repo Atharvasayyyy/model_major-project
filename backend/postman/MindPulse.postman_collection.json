@@ -1,0 +1,436 @@
+{
+  "info": {
+    "name": "MindPulse Backend APIs",
+    "_postman_id": "f1e2c3d4-a5b6-47c8-9012-34567890abcd",
+    "description": "Import this collection and run requests in order. It auto-saves auth token and childId from responses.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000" },
+    { "key": "token", "value": "" },
+    { "key": "childId", "value": "" },
+    { "key": "loginEmail", "value": "test@example.com" },
+    { "key": "loginPassword", "value": "test12345" },
+    { "key": "registerName", "value": "Postman User" },
+    { "key": "registerEmail", "value": "" },
+    { "key": "autoGenerateRegisterEmail", "value": "true" }
+  ],
+  "item": [
+    {
+      "name": "0. Health",
+      "item": [
+        {
+          "name": "GET Health",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200 or 503', function () {",
+                  "  pm.expect([200, 503]).to.include(pm.response.code);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1. Auth",
+      "item": [
+        {
+          "name": "POST Register",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{registerName}}\",\n  \"email\": \"{{registerEmail}}\",\n  \"password\": \"{{loginPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "register"]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const auto = (pm.collectionVariables.get('autoGenerateRegisterEmail') || 'true').toLowerCase() === 'true';",
+                  "if (auto) {",
+                  "  const email = `postman_${Date.now()}@example.com`;",
+                  "  pm.collectionVariables.set('registerEmail', email);",
+                  "  pm.collectionVariables.set('loginEmail', email);",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Register success', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201, 409]);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "if (pm.response.code === 201 && json.token) {",
+                  "  pm.collectionVariables.set('token', json.token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Login",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{loginEmail}}\",\n  \"password\": \"{{loginPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login success', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "if (json.token) pm.collectionVariables.set('token', json.token);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Children",
+      "item": [
+        {
+          "name": "POST Create Child",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"child_name\": \"Aarav\",\n  \"age\": 8,\n  \"grade\": \"3rd\",\n  \"device_id\": \"MP-DEVICE-001\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/children",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "children"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Create child success', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "const id = json._id || json.id;",
+                  "if (id) pm.collectionVariables.set('childId', id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Children",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/children",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "children"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Get children success', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const arr = pm.response.json();",
+                  "if (Array.isArray(arr) && arr.length > 0) {",
+                  "  pm.collectionVariables.set('childId', arr[0]._id || arr[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Child By ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/children/{{childId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "children", "{{childId}}"]
+            }
+          }
+        },
+        {
+          "name": "PUT Update Child",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"child_name\": \"Aarav Sharma\",\n  \"age\": 9,\n  \"grade\": \"4th\",\n  \"device_id\": \"MP-DEVICE-001\",\n  \"hr_baseline\": 78.5,\n  \"rmssd_baseline\": 44.2\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/children/{{childId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "children", "{{childId}}"]
+            }
+          }
+        },
+        {
+          "name": "DELETE Child",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/children/{{childId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "children", "{{childId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Baseline",
+      "item": [
+        {
+          "name": "GET Baseline Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/baseline/status/{{childId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "baseline", "status", "{{childId}}"]
+            }
+          }
+        },
+        {
+          "name": "POST Baseline Start",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"child_id\": \"{{childId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/baseline/start",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "baseline", "start"]
+            }
+          }
+        },
+        {
+          "name": "POST Baseline Record",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"child_id\": \"{{childId}}\",\n  \"heart_rate\": 82,\n  \"hrv_rmssd\": 46,\n  \"motion_level\": 0.12\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/baseline/record",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "baseline", "record"]
+            }
+          }
+        },
+        {
+          "name": "POST Baseline Finish",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"child_id\": \"{{childId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/baseline/finish",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "baseline", "finish"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Sensor Data",
+      "item": [
+        {
+          "name": "POST Ingest Sensor Data",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"child_id\": \"{{childId}}\",\n  \"activity\": \"Reading\",\n  \"heart_rate\": 88,\n  \"hrv_rmssd\": 40,\n  \"motion_level\": 0.18,\n  \"timestamp\": \"2026-03-06T12:30:00Z\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/sensor-data",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "sensor-data"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Analytics",
+      "item": [
+        {
+          "name": "GET Realtime",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/analytics/realtime/{{childId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "analytics", "realtime", "{{childId}}"]
+            }
+          }
+        },
+        {
+          "name": "GET Engagement Trend",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/analytics/engagement-trend/{{childId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "analytics", "engagement-trend", "{{childId}}"]
+            }
+          }
+        },
+        {
+          "name": "GET Activity Insights",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/analytics/activity-insights/{{childId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "analytics", "activity-insights", "{{childId}}"]
+            }
+          }
+        },
+        {
+          "name": "GET Daily Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/analytics/daily-summary/{{childId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "analytics", "daily-summary", "{{childId}}"]
+            }
+          }
+        },
+        {
+          "name": "GET Analytics Alerts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/analytics/alerts/{{childId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "analytics", "alerts", "{{childId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Alerts",
+      "item": [
+        {
+          "name": "GET Alerts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/alerts/{{childId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "alerts", "{{childId}}"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

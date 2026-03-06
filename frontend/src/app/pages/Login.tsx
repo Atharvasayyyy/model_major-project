@@ -18,9 +18,9 @@ export const Login = () => {
 
     try {
       await login(email, password);
-      navigate("/");
+      navigate("/app");
     } catch (err) {
-      setError("Invalid credentials");
+      setError(err instanceof Error ? err.message : "Login failed");
     } finally {
       setLoading(false);
     }
@@ -46,6 +46,7 @@ export const Login = () => {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="Enter your email"
+              autoComplete="email"
               required
               className="w-full bg-gray-800 text-white rounded-lg pl-12 pr-4 py-3 border border-gray-700 focus:border-purple-500 focus:outline-none"
             />
@@ -61,6 +62,7 @@ export const Login = () => {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Enter your password"
+              autoComplete="current-password"
               required
               className="w-full bg-gray-800 text-white rounded-lg pl-12 pr-4 py-3 border border-gray-700 focus:border-purple-500 focus:outline-none"
             />

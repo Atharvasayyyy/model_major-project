@@ -11,10 +11,12 @@ export const Alerts = () => {
   const getAlertIcon = (type: string) => {
     switch (type) {
       case "stress":
+      case "high_stress":
         return <AlertCircle className="w-5 h-5 text-red-500" />;
       case "low_engagement":
         return <AlertCircle className="w-5 h-5 text-orange-500" />;
       case "high_hr":
+      case "abnormal_heart_rate":
         return <AlertCircle className="w-5 h-5 text-yellow-500" />;
       default:
         return <AlertCircle className="w-5 h-5 text-gray-500" />;
@@ -26,10 +28,12 @@ export const Alerts = () => {
     
     switch (type) {
       case "stress":
+      case "high_stress":
         return "bg-red-500/10 border-red-500/50";
       case "low_engagement":
         return "bg-orange-500/10 border-orange-500/50";
       case "high_hr":
+      case "abnormal_heart_rate":
         return "bg-yellow-500/10 border-yellow-500/50";
       default:
         return "bg-gray-500/10 border-gray-500/50";

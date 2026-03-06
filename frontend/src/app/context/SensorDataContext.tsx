@@ -19,7 +19,7 @@ export interface SensorData {
 export interface Alert {
   id: string;
   child_id: string;
-  type: "stress" | "low_engagement" | "high_hr";
+  type: string;
   message: string;
   timestamp: string;
   read: boolean;
@@ -39,7 +39,7 @@ const SensorDataContext = createContext<SensorDataContextType | undefined>(undef
 function normalizeSensor(raw: any, fallbackChildId: string): SensorData {
   return {
     id: String(raw?.id ?? raw?._id ?? `SD${Date.now()}${Math.random().toString(36).slice(2, 6)}`),
-    child_id: String(raw?.child_id ?? raw?.user_id ?? fallbackChildId),
+    child_id: String(raw?.child_id ?? fallbackChildId),
     activity: String(raw?.activity ?? "Unknown"),
     heart_rate: Number(raw?.heart_rate ?? 0),
     hrv_rmssd: Number(raw?.hrv_rmssd ?? 0),
@@ -52,61 +52,21 @@ function normalizeSensor(raw: any, fallbackChildId: string): SensorData {
 }
 
 function normalizeAlert(raw: any, fallbackChildId: string): Alert {
-  const mappedType =
-    raw?.type === "stress" || raw?.type === "low_engagement" || raw?.type === "high_hr"
-      ? raw.type
-      : "low_engagement";
   return {
     id: String(raw?.id ?? raw?._id ?? `A${Date.now()}${Math.random().toString(36).slice(2, 6)}`),
-    child_id: String(raw?.child_id ?? raw?.user_id ?? fallbackChildId),
-    type: mappedType,
-    message: String(raw?.message ?? "Engagement alert detected."),
-    timestamp: String(raw?.timestamp ?? new Date().toISOString()),
+    child_id: String(raw?.child_id ?? fallbackChildId),
+    type: String(raw?.type ?? raw?.alert_type ?? "low_engagement"),
+    message: String(raw?.message ?? "Alert detected."),
+    timestamp: String(raw?.timestamp ?? raw?.createdAt ?? new Date().toISOString()),
     read: Boolean(raw?.read ?? false),
   };
 }
 
-function getDerivedAlerts(entry: SensorData, hrBaseline: number): Alert[] {
-  const derived: Alert[] = [];
-  if (entry.engagement_score < 0.2) {
-    derived.push({
-      id: `A${Date.now()}stress`,
-      child_id: entry.child_id,
-      type: "stress",
-      message: `High stress detected during ${entry.activity} session.`,
-      timestamp: entry.timestamp,
-      read: false,
-    });
-  } else if (entry.engagement_score < 0.4) {
-    derived.push({
-      id: `A${Date.now()}low`,
-      child_id: entry.child_id,
-      type: "low_engagement",
-      message: `Low engagement detected during ${entry.activity}.`,
-      timestamp: entry.timestamp,
-      read: false,
-    });
-  }
-
-  if (hrBaseline > 0 && entry.heart_rate > hrBaseline * 1.2) {
-    derived.push({
-      id: `A${Date.now()}hr`,
-      child_id: entry.child_id,
-      type: "high_hr",
-      message: `Heart rate significantly above baseline during ${entry.activity}.`,
-      timestamp: entry.timestamp,
-      read: false,
-    });
-  }
-  return derived;
-}
-
 export const SensorDataProvider = ({ children }: { children: ReactNode }) => {
-  const { token, isAuthenticated, user } = useAuth();
+  const { isAuthenticated } = useAuth();
   const { selectedChild } = useChildren();
   const [sensorData, setSensorData] = useState<SensorData[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
-
   const [latestData, setLatestData] = useState<SensorData | null>(null);
 
   useEffect(() => {
@@ -119,45 +79,70 @@ export const SensorDataProvider = ({ children }: { children: ReactNode }) => {
 
     let isMounted = true;
 
-    const loadAnalytics = async () => {
+    const loadInitialData = async () => {
       try {
-        const raw = await api.getAnalytics(selectedChild.id, token, "week");
-        const rows = (raw?.sensor_data || raw?.engagement_results || raw?.data || []) as any[];
-        const normalizedRows = rows
-          .map((row) => normalizeSensor(row, selectedChild.id))
-          .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+        const [trendRows, alertRows] = await Promise.all([
+          api.getEngagementTrend(selectedChild.id),
+          api.getAlerts(selectedChild.id),
+        ]);
 
-        const alertRows = (raw?.alerts || []) as any[];
-        const normalizedAlerts = alertRows.map((row) => normalizeAlert(row, selectedChild.id));
+        if (!isMounted) return;
 
-        if (isMounted) {
-          setSensorData(normalizedRows);
-          setLatestData(normalizedRows.length ? normalizedRows[normalizedRows.length - 1] : null);
-          setAlerts(normalizedAlerts);
-        }
+        const normalizedTrend = (trendRows || [])
+          .map((row: any) => normalizeSensor(row, selectedChild.id))
+          .sort((a: SensorData, b: SensorData) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+        setSensorData(normalizedTrend);
+        setLatestData(normalizedTrend.length ? normalizedTrend[normalizedTrend.length - 1] : null);
+        setAlerts((alertRows || []).map((row: any) => normalizeAlert(row, selectedChild.id)));
       } catch {
-        // Keep current data if analytics endpoint is temporarily unavailable.
+        // Keep current local state if backend is temporarily unavailable.
       }
     };
 
-    void loadAnalytics();
+    const loadRealtime = async () => {
+      try {
+        const [realtimeRow, alertRows] = await Promise.all([
+          api.getRealtimeAnalytics(selectedChild.id),
+          api.getAlerts(selectedChild.id),
+        ]);
+
+        if (!isMounted) return;
+
+        if (realtimeRow) {
+          const normalized = normalizeSensor(realtimeRow, selectedChild.id);
+          setLatestData(normalized);
+          setSensorData((prev) => {
+            const exists = prev.some((row) => row.timestamp === normalized.timestamp && row.activity === normalized.activity);
+            if (exists) return prev;
+            return [...prev.slice(-299), normalized];
+          });
+        }
+
+        setAlerts((alertRows || []).map((row: any) => normalizeAlert(row, selectedChild.id)));
+      } catch {
+        // Keep displaying previous data while polling retries.
+      }
+    };
+
+    void loadInitialData();
+    void loadRealtime();
+
     const interval = setInterval(() => {
-      void loadAnalytics();
-    }, 10000);
+      void loadRealtime();
+    }, 5000);
 
     return () => {
       isMounted = false;
       clearInterval(interval);
     };
-  }, [isAuthenticated, selectedChild, token]);
+  }, [isAuthenticated, selectedChild]);
 
   const addSensorData = async (data: Omit<SensorData, "id" | "timestamp">) => {
-    if (!selectedChild) {
-      return;
-    }
+    if (!selectedChild) return;
 
     const payload = {
-      user_id: user?.id || selectedChild.id,
+      child_id: selectedChild.id,
       activity: data.activity,
       heart_rate: data.heart_rate,
       hrv_rmssd: data.hrv_rmssd,
@@ -166,49 +151,22 @@ export const SensorDataProvider = ({ children }: { children: ReactNode }) => {
     };
 
     try {
-      const response = await api.postSensorData(payload, token);
-      const entry = normalizeSensor(
-        {
-          ...payload,
-          ...response,
-          child_id: data.child_id,
-        },
-        selectedChild.id,
-      );
-
-      setSensorData((prev) => [...prev.slice(-199), entry]);
-      setLatestData(entry);
-
-      const backendAlerts = Array.isArray(response?.alerts)
-        ? response.alerts.map((row: any) => normalizeAlert(row, selectedChild.id))
-        : getDerivedAlerts(entry, selectedChild.hr_baseline);
-
-      if (backendAlerts.length) {
-        setAlerts((prev) => [...backendAlerts, ...prev].slice(0, 50));
+      await api.postSensorData(payload);
+      const realtimeRow = await api.getRealtimeAnalytics(selectedChild.id);
+      if (realtimeRow) {
+        const normalized = normalizeSensor(realtimeRow, selectedChild.id);
+        setLatestData(normalized);
+        setSensorData((prev) => [...prev.slice(-299), normalized]);
       }
+      const alertRows = await api.getAlerts(selectedChild.id);
+      setAlerts((alertRows || []).map((row: any) => normalizeAlert(row, selectedChild.id)));
     } catch {
-      const fallback = normalizeSensor(
-        {
-          ...data,
-          timestamp: new Date().toISOString(),
-          id: `SD${Date.now()}`,
-        },
-        selectedChild.id,
-      );
-      setSensorData((prev) => [...prev.slice(-199), fallback]);
-      setLatestData(fallback);
-
-      const derived = getDerivedAlerts(fallback, selectedChild.hr_baseline);
-      if (derived.length) {
-        setAlerts((prev) => [...derived, ...prev].slice(0, 50));
-      }
+      // If backend write fails, keep UI stable and retry on next poll.
     }
   };
 
   const markAlertAsRead = (id: string) => {
-    setAlerts((prev) =>
-      prev.map((alert) => (alert.id === id ? { ...alert, read: true } : alert))
-    );
+    setAlerts((prev) => prev.map((alert) => (alert.id === id ? { ...alert, read: true } : alert)));
   };
 
   const clearAlerts = () => {

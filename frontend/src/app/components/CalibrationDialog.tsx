@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useChildren, Child } from "../context/ChildrenContext";
 import { X, Loader2, CheckCircle } from "lucide-react";
+import { api } from "../services/api";
 
 interface CalibrationDialogProps {
   child: Child;
@@ -12,34 +13,71 @@ export const CalibrationDialog = ({ child, onClose }: CalibrationDialogProps) =>
   const [progress, setProgress] = useState(0);
   const [isCalibrating, setIsCalibrating] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
+  const [error, setError] = useState("");
   const [calibrationData, setCalibrationData] = useState({
     hr: 0,
     hrv: 0,
   });
 
-  const startCalibration = () => {
+  useEffect(() => {
+    return () => {
+      setIsCalibrating(false);
+    };
+  }, []);
+
+  const startCalibration = async () => {
+    setError("");
     setIsCalibrating(true);
     setProgress(0);
 
-    // Simulate calibration process
+    try {
+      await api.startBaseline(child.id);
+    } catch {
+      setIsCalibrating(false);
+      setError("Failed to start calibration session.");
+      return;
+    }
+
+    let elapsed = 0;
     const interval = setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          // Generate calibration results
-          const hrBaseline = Math.floor(70 + Math.random() * 20);
-          const hrvBaseline = Math.floor(40 + Math.random() * 20);
-          
-          setCalibrationData({
-            hr: hrBaseline,
-            hrv: hrvBaseline,
-          });
-          
-          setIsComplete(true);
-          return 100;
-        }
-        return prev + 2; // 50 seconds total (100 / 2)
-      });
+      elapsed += 1;
+      setProgress((prev) => Math.min(100, prev + 2));
+
+      if (elapsed % 5 === 0) {
+        void (async () => {
+          try {
+            const realtime = await api.getRealtimeAnalytics(child.id);
+            if (!realtime) return;
+            await api.recordBaseline({
+              child_id: child.id,
+              heart_rate: realtime.heart_rate,
+              hrv_rmssd: realtime.hrv_rmssd,
+              motion_level: realtime.motion_level,
+            });
+          } catch {
+            // Continue session; backend will validate enough samples at finish step.
+          }
+        })();
+      }
+
+      if (elapsed >= 50) {
+        clearInterval(interval);
+        void (async () => {
+          try {
+            const result = await api.finishBaseline(child.id);
+            setCalibrationData({
+              hr: Number(result?.hr_baseline || child.hr_baseline || 78),
+              hrv: Number(result?.rmssd_baseline || child.rmssd_baseline || 52),
+            });
+            setIsComplete(true);
+          } catch {
+            setError("Failed to complete calibration.");
+          } finally {
+            setIsCalibrating(false);
+            setProgress(100);
+          }
+        })();
+      }
     }, 1000);
   };
 
@@ -68,6 +106,11 @@ export const CalibrationDialog = ({ child, onClose }: CalibrationDialogProps) =>
 
         {!isCalibrating && !isComplete && (
           <div className="space-y-4">
+            {error && (
+              <div className="bg-red-500/10 border border-red-500 text-red-400 px-4 py-3 rounded-lg text-sm">
+                {error}
+              </div>
+            )}
             <div className="bg-purple-500/10 border border-purple-500 rounded-lg p-4">
               <p className="text-sm text-purple-200">
                 <strong>Instructions:</strong>
@@ -128,6 +171,7 @@ export const CalibrationDialog = ({ child, onClose }: CalibrationDialogProps) =>
             <div className="flex flex-col items-center">
               <CheckCircle className="w-16 h-16 text-green-500 mb-4" />
               <p className="text-lg font-semibold mb-2">Calibration Complete!</p>
+              <p className="text-sm text-green-400">Baseline successfully calibrated.</p>
             </div>
 
             <div className="bg-secondary rounded-lg p-4 space-y-3">

@@ -1,4 +1,4 @@
-import { Outlet, Navigate, useNavigate, useLocation } from "react-router";
+import { Outlet, useNavigate, useLocation, Navigate } from "react-router";
 import { useAuth } from "../context/AuthContext";
 import { useChildren } from "../context/ChildrenContext";
 import { useSensorData } from "../context/SensorDataContext";
@@ -26,12 +26,12 @@ export const DashboardLayout = () => {
   }
 
   const navItems = [
-    { path: "/", icon: LayoutDashboard, label: "Dashboard" },
-    { path: "/children", icon: Users, label: "Children" },
-    { path: "/monitoring", icon: Radio, label: "Live Monitoring" },
-    { path: "/analytics", icon: TrendingUp, label: "Analytics" },
-    { path: "/reports", icon: FileText, label: "Reports" },
-    { path: "/alerts", icon: Bell, label: "Alerts", badge: alerts.filter(a => !a.read).length },
+    { path: "/app", icon: LayoutDashboard, label: "Dashboard" },
+    { path: "/app/children", icon: Users, label: "Children" },
+    { path: "/app/monitoring", icon: Radio, label: "Live Monitoring" },
+    { path: "/app/analytics", icon: TrendingUp, label: "Analytics" },
+    { path: "/app/reports", icon: FileText, label: "Reports" },
+    { path: "/app/alerts", icon: Bell, label: "Alerts", badge: alerts.filter(a => !a.read).length },
   ];
 
   const handleLogout = () => {

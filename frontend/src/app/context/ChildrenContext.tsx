@@ -2,9 +2,6 @@ import React, { createContext, useContext, useState, ReactNode, useEffect } from
 import { api } from "../services/api";
 import { useAuth } from "./AuthContext";
 
-const viteEnv = (import.meta as any).env as Record<string, string> | undefined;
-const DEV_AUTO_LOGIN = viteEnv?.VITE_DEV_AUTO_LOGIN === "true";
-
 export interface Child {
   id: string;
   child_name: string;
@@ -44,7 +41,7 @@ function normalizeChild(raw: any): Child {
 }
 
 export const ChildrenProvider = ({ children }: { children: ReactNode }) => {
-  const { token, isAuthenticated } = useAuth();
+  const { isAuthenticated } = useAuth();
   const [childrenList, setChildrenList] = useState<Child[]>(() => {
     const saved = localStorage.getItem("mindpulse_children");
     return saved ? JSON.parse(saved) : [];
@@ -64,31 +61,16 @@ export const ChildrenProvider = ({ children }: { children: ReactNode }) => {
 
     const loadChildren = async () => {
       try {
-        const rows = await api.getChildren(token);
+        const rows = await api.getChildren();
         const normalized = rows.map(normalizeChild);
-        const withFallback =
-          DEV_AUTO_LOGIN && normalized.length === 0
-            ? [
-                {
-                  id: "DEV-C001",
-                  child_name: "Demo Child",
-                  age: 10,
-                  grade: "5th Grade",
-                  device_id: "MP-DEV-01",
-                  hr_baseline: 78,
-                  rmssd_baseline: 52,
-                  isCalibrated: true,
-                },
-              ]
-            : normalized;
-        setChildrenList(withFallback);
-        localStorage.setItem("mindpulse_children", JSON.stringify(withFallback));
+        setChildrenList(normalized);
+        localStorage.setItem("mindpulse_children", JSON.stringify(normalized));
         setSelectedChild((prev) => {
-          if (!withFallback.length) {
+          if (!normalized.length) {
             return null;
           }
-          const existing = prev ? withFallback.find((c) => c.id === prev.id) : null;
-          return existing || withFallback[0];
+          const existing = prev ? normalized.find((c) => c.id === prev.id) : null;
+          return existing || normalized[0];
         });
       } catch {
         const cached = localStorage.getItem("mindpulse_children");
@@ -96,26 +78,12 @@ export const ChildrenProvider = ({ children }: { children: ReactNode }) => {
           const parsed = JSON.parse(cached) as Child[];
           setChildrenList(parsed);
           setSelectedChild(parsed[0] || null);
-        } else if (DEV_AUTO_LOGIN) {
-          const demoChild: Child = {
-            id: "DEV-C001",
-            child_name: "Demo Child",
-            age: 10,
-            grade: "5th Grade",
-            device_id: "MP-DEV-01",
-            hr_baseline: 78,
-            rmssd_baseline: 52,
-            isCalibrated: true,
-          };
-          setChildrenList([demoChild]);
-          setSelectedChild(demoChild);
-          localStorage.setItem("mindpulse_children", JSON.stringify([demoChild]));
         }
       }
     };
 
     void loadChildren();
-  }, [isAuthenticated, token]);
+  }, [isAuthenticated]);
 
   const addChild = async (child: Omit<Child, "id" | "isCalibrated">) => {
     const payload = {
@@ -129,7 +97,7 @@ export const ChildrenProvider = ({ children }: { children: ReactNode }) => {
     };
 
     try {
-      const raw = await api.createChild(payload, token);
+      const raw = await api.createChild(payload);
       const newChild = normalizeChild(raw);
       const updated = [...childrenList, newChild];
       setChildrenList(updated);
@@ -150,7 +118,7 @@ export const ChildrenProvider = ({ children }: { children: ReactNode }) => {
 
   const updateChild = async (id: string, updates: Partial<Child>) => {
     try {
-      const raw = await api.updateChild(id, updates, token);
+      const raw = await api.updateChild(id, updates);
       const next = normalizeChild(raw);
       const updated = childrenList.map((child) => (child.id === id ? next : child));
       setChildrenList(updated);
@@ -171,7 +139,7 @@ export const ChildrenProvider = ({ children }: { children: ReactNode }) => {
 
   const deleteChild = async (id: string) => {
     try {
-      await api.deleteChild(id, token);
+      await api.deleteChild(id);
     } catch {
       // Keep local deletion behavior if backend endpoint is unavailable.
     }

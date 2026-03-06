@@ -1,15 +1,6 @@
 import React, { createContext, useContext, useState, ReactNode } from "react";
 import { api } from "../services/api";
 
-const viteEnv = (import.meta as any).env as Record<string, string> | undefined;
-const DEV_AUTO_LOGIN = viteEnv?.VITE_DEV_AUTO_LOGIN === "true";
-
-const DEV_USER: User = {
-  id: "DEV-U001",
-  name: "Demo Parent",
-  email: "demo@mindpulse.local",
-};
-
 interface User {
   id: string;
   name: string;
@@ -27,39 +18,62 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const getAuthErrorMessage = (error: unknown, fallback: string) => {
+  const maybeError = error as {
+    response?: { data?: { message?: string; error?: string } };
+    message?: string;
+  };
+
+  if (maybeError?.response?.data?.message) {
+    return maybeError.response.data.message;
+  }
+
+  if (maybeError?.response?.data?.error) {
+    return maybeError.response.data.error;
+  }
+
+  if (maybeError?.message === "Network Error") {
+    return "Backend API is unreachable. Start backend and MongoDB, then try again.";
+  }
+
+  return maybeError?.message || fallback;
+};
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(() => {
     const savedUser = localStorage.getItem("mindpulse_user");
     if (savedUser) {
       return JSON.parse(savedUser);
     }
-    return DEV_AUTO_LOGIN ? DEV_USER : null;
+    return null;
   });
   const [token, setToken] = useState<string | null>(() => {
     const savedToken = localStorage.getItem("mindpulse_token");
     if (savedToken) {
       return savedToken;
     }
-    return DEV_AUTO_LOGIN ? "dev-token" : null;
+    return null;
   });
 
   const login = async (email: string, password: string) => {
-    const { user: loggedInUser, token: authToken } = await api.login(email, password);
-    setUser(loggedInUser);
-    setToken(authToken);
-    localStorage.setItem("mindpulse_user", JSON.stringify(loggedInUser));
-    if (authToken) {
-      localStorage.setItem("mindpulse_token", authToken);
+    try {
+      const { user: loggedInUser, token: authToken } = await api.loginUser({ email, password });
+      setUser(loggedInUser);
+      setToken(authToken);
+      localStorage.setItem("mindpulse_user", JSON.stringify(loggedInUser));
+      if (authToken) {
+        localStorage.setItem("mindpulse_token", authToken);
+      }
+    } catch (error) {
+      throw new Error(getAuthErrorMessage(error, "Login failed"));
     }
   };
 
   const register = async (name: string, email: string, password: string) => {
-    const { user: registeredUser, token: authToken } = await api.register(name, email, password);
-    setUser(registeredUser);
-    setToken(authToken);
-    localStorage.setItem("mindpulse_user", JSON.stringify(registeredUser));
-    if (authToken) {
-      localStorage.setItem("mindpulse_token", authToken);
+    try {
+      await api.registerUser({ name, email, password });
+    } catch (error) {
+      throw new Error(getAuthErrorMessage(error, "Registration failed"));
     }
   };
 

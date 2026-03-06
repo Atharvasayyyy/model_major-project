@@ -1,7 +1,7 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useChildren } from "../context/ChildrenContext";
-import { useSensorData } from "../context/SensorDataContext";
 import { TrendingUp, Calendar } from "lucide-react";
+import { api } from "../services/api";
 import {
   BarChart,
   Bar,
@@ -18,8 +18,54 @@ type TimeFilter = "today" | "week" | "month";
 
 export const Analytics = () => {
   const { selectedChild } = useChildren();
-  const { sensorData } = useSensorData();
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("week");
+  const [trendRows, setTrendRows] = useState<any[]>([]);
+  const [activityRows, setActivityRows] = useState<any[]>([]);
+  const [summary, setSummary] = useState({
+    average_heart_rate: 0,
+    average_hrv: 0,
+    average_engagement_score: 0,
+  });
+
+  useEffect(() => {
+    if (!selectedChild) return;
+
+    let mounted = true;
+
+    const load = async () => {
+      try {
+        const [trendData, activityData, dailySummary] = await Promise.all([
+          api.getEngagementTrend(selectedChild.id),
+          api.getActivityInsights(selectedChild.id),
+          api.getDailySummary(selectedChild.id),
+        ]);
+
+        if (!mounted) return;
+        setTrendRows(Array.isArray(trendData) ? trendData : []);
+        setActivityRows(Array.isArray(activityData) ? activityData : []);
+        setSummary(dailySummary || {
+          average_heart_rate: 0,
+          average_hrv: 0,
+          average_engagement_score: 0,
+        });
+      } catch {
+        if (!mounted) return;
+        setTrendRows([]);
+        setActivityRows([]);
+        setSummary({ average_heart_rate: 0, average_hrv: 0, average_engagement_score: 0 });
+      }
+    };
+
+    void load();
+    const interval = setInterval(() => {
+      void load();
+    }, 10000);
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [selectedChild]);
 
   const filteredData = useMemo(() => {
     const now = new Date();
@@ -33,28 +79,18 @@ export const Analytics = () => {
       cutoff.setMonth(now.getMonth() - 1);
     }
 
-    return sensorData.filter((d) => new Date(d.timestamp) >= cutoff);
-  }, [sensorData, timeFilter]);
+    return trendRows.filter((d) => new Date(d.timestamp) >= cutoff);
+  }, [trendRows, timeFilter]);
 
   // Calculate activity-wise engagement
   const activityEngagement = useMemo(() => {
-    const activityMap = new Map<string, { total: number; count: number }>();
-
-    filteredData.forEach((d) => {
-      const existing = activityMap.get(d.activity) || { total: 0, count: 0 };
-      activityMap.set(d.activity, {
-        total: existing.total + d.engagement_score,
-        count: existing.count + 1,
-      });
-    });
-
-    return Array.from(activityMap.entries())
-      .map(([activity, data]) => ({
-        activity,
-        engagement: ((data.total / data.count) * 100).toFixed(1),
+    return activityRows
+      .map((row) => ({
+        activity: String(row.activity || "Unknown"),
+        engagement: (Number(row.avg_engagement || 0) * 100).toFixed(1),
       }))
       .sort((a, b) => parseFloat(b.engagement) - parseFloat(a.engagement));
-  }, [filteredData]);
+  }, [activityRows]);
 
   // Engagement trend over time
   const engagementTrend = useMemo(() => {
@@ -80,27 +116,14 @@ export const Analytics = () => {
     }));
   }, [filteredData, timeFilter]);
 
-  // Average metrics
-  const averageMetrics = useMemo(() => {
-    if (filteredData.length === 0) {
-      return { engagement: 0, hr: 0, hrv: 0 };
-    }
-
-    const sum = filteredData.reduce(
-      (acc, d) => ({
-        engagement: acc.engagement + d.engagement_score,
-        hr: acc.hr + d.heart_rate,
-        hrv: acc.hrv + d.hrv_rmssd,
-      }),
-      { engagement: 0, hr: 0, hrv: 0 }
-    );
-
-    return {
-      engagement: ((sum.engagement / filteredData.length) * 100).toFixed(1),
-      hr: (sum.hr / filteredData.length).toFixed(0),
-      hrv: (sum.hrv / filteredData.length).toFixed(0),
-    };
-  }, [filteredData]);
+  const averageMetrics = useMemo(
+    () => ({
+      engagement: (summary.average_engagement_score * 100).toFixed(1),
+      hr: summary.average_heart_rate.toFixed(0),
+      hrv: summary.average_hrv.toFixed(0),
+    }),
+    [summary],
+  );
 
   if (!selectedChild) {
     return (
