@@ -1,0 +1,133 @@
+import { Outlet, Navigate, useNavigate, useLocation } from "react-router";
+import { useAuth } from "../context/AuthContext";
+import { useChildren } from "../context/ChildrenContext";
+import { useSensorData } from "../context/SensorDataContext";
+import {
+  Activity,
+  LayoutDashboard,
+  Users,
+  Radio,
+  TrendingUp,
+  FileText,
+  Bell,
+  LogOut,
+  ChevronDown,
+} from "lucide-react";
+
+export const DashboardLayout = () => {
+  const { isAuthenticated, user, logout } = useAuth();
+  const { selectedChild, children, setSelectedChild } = useChildren();
+  const { alerts } = useSensorData();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  if (!isAuthenticated) {
+    return <Navigate to="/auth/login" replace />;
+  }
+
+  const navItems = [
+    { path: "/", icon: LayoutDashboard, label: "Dashboard" },
+    { path: "/children", icon: Users, label: "Children" },
+    { path: "/monitoring", icon: Radio, label: "Live Monitoring" },
+    { path: "/analytics", icon: TrendingUp, label: "Analytics" },
+    { path: "/reports", icon: FileText, label: "Reports" },
+    { path: "/alerts", icon: Bell, label: "Alerts", badge: alerts.filter(a => !a.read).length },
+  ];
+
+  const handleLogout = () => {
+    logout();
+    navigate("/auth/login");
+  };
+
+  return (
+    <div className="min-h-screen bg-background flex">
+      {/* Sidebar */}
+      <aside className="w-64 bg-card border-r border-border flex flex-col">
+        <div className="p-6 border-b border-border">
+          <div className="flex items-center gap-2">
+            <Activity className="w-8 h-8 text-purple-500" />
+            <h1 className="text-xl font-bold">MindPulse</h1>
+          </div>
+        </div>
+
+        {/* Child Selector */}
+        {children.length > 0 && (
+          <div className="p-4 border-b border-border">
+            <label className="text-sm text-muted-foreground mb-2 block">
+              Selected Child
+            </label>
+            <div className="relative">
+              <select
+                value={selectedChild?.id || ""}
+                onChange={(e) => {
+                  const child = children.find((c) => c.id === e.target.value);
+                  if (child) setSelectedChild(child);
+                }}
+                className="w-full bg-secondary text-foreground rounded-lg px-3 py-2 pr-8 appearance-none cursor-pointer"
+              >
+                {children.map((child) => (
+                  <option key={child.id} value={child.id}>
+                    {child.child_name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+            </div>
+          </div>
+        )}
+
+        {/* Navigation */}
+        <nav className="flex-1 p-4 space-y-2">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = location.pathname === item.path;
+            return (
+              <button
+                key={item.path}
+                onClick={() => navigate(item.path)}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+                  isActive
+                    ? "bg-purple-600 text-white"
+                    : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                }`}
+              >
+                <Icon className="w-5 h-5" />
+                <span className="flex-1 text-left">{item.label}</span>
+                {item.badge !== undefined && item.badge > 0 && (
+                  <span className="bg-red-500 text-white text-xs rounded-full px-2 py-0.5">
+                    {item.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* User Section */}
+        <div className="p-4 border-t border-border">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center text-white font-semibold">
+              {user?.name.charAt(0)}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-medium truncate">{user?.name}</p>
+              <p className="text-sm text-muted-foreground truncate">{user?.email}</p>
+            </div>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center gap-2 px-4 py-2 rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+          >
+            <LogOut className="w-5 h-5" />
+            <span>Logout</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="flex-1 overflow-auto">
+        <Outlet />
+      </main>
+    </div>
+  );
+};

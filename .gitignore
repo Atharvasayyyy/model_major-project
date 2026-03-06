@@ -3,3 +3,6 @@ __pycache__/
 .venv/
 models/*.joblib
 .hf_bundle/
+frontend/node_modules/
+frontend/dist/
+frontend/.env
