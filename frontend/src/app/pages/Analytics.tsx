@@ -7,12 +7,24 @@ import {
   Bar,
   LineChart,
   Line,
+  Area,
   XAxis,
   YAxis,
   Tooltip,
   ResponsiveContainer,
   CartesianGrid,
 } from "recharts";
+
+function AnalyticsTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+
+  return (
+    <div className="min-w-[160px] rounded-lg border border-border/80 bg-background/95 px-3 py-2 shadow-xl backdrop-blur">
+      <p className="mb-1 text-xs font-semibold text-foreground">{label}</p>
+      <p className="text-xs text-cyan-400">Engagement: {payload[0]?.value}%</p>
+    </div>
+  );
+}
 
 type TimeFilter = "today" | "week" | "month";
 
@@ -280,22 +292,24 @@ export const Analytics = () => {
         <h2 className="text-xl font-semibold mb-4">Engagement Score Over Time</h2>
         <ResponsiveContainer width="100%" height={300}>
           <LineChart data={engagementTrend}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#454545" />
-            <XAxis dataKey="time" stroke="#71718288" tick={{ fontSize: 12 }} />
-            <YAxis stroke="#71718288" tick={{ fontSize: 12 }} domain={[0, 100]} />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: "#252525",
-                border: "1px solid #454545",
-                borderRadius: "8px",
-              }}
-            />
+            <defs>
+              <linearGradient id="analyticsEngagementFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#0ea5e9" stopOpacity={0.4} />
+                <stop offset="100%" stopColor="#0ea5e9" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid vertical={false} strokeDasharray="4 8" stroke="rgba(113,113,130,0.26)" />
+            <XAxis dataKey="time" axisLine={false} tickLine={false} stroke="#717182" tick={{ fontSize: 12 }} />
+            <YAxis axisLine={false} tickLine={false} stroke="#717182" tick={{ fontSize: 12 }} domain={[0, 100]} />
+            <Tooltip content={<AnalyticsTooltip />} cursor={{ stroke: "rgba(14,165,233,0.45)", strokeWidth: 1.5 }} />
+            <Area type="monotone" dataKey="engagement" stroke="none" fill="url(#analyticsEngagementFill)" />
             <Line
               type="monotone"
               dataKey="engagement"
-              stroke="#a855f7"
+              stroke="#0ea5e9"
               strokeWidth={3}
-              dot={{ fill: "#a855f7", r: 4 }}
+              dot={false}
+              activeDot={{ r: 5, fill: "#0ea5e9", stroke: "#fff", strokeWidth: 2 }}
             />
           </LineChart>
         </ResponsiveContainer>

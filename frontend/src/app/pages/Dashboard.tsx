@@ -1,10 +1,11 @@
 import { useMemo } from "react";
 import { useChildren } from "../context/ChildrenContext";
 import { useSensorData } from "../context/SensorDataContext";
-import { Heart, Activity, Zap, Bell } from "lucide-react";
+import { Heart, Activity, Zap, Bell, Droplets } from "lucide-react";
 import {
   LineChart,
   Line,
+  Area,
   XAxis,
   YAxis,
   Tooltip,
@@ -13,6 +14,18 @@ import {
   BarChart,
   Bar,
 } from "recharts";
+
+function TrendTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+
+  return (
+    <div className="min-w-[170px] rounded-lg border border-border/80 bg-background/95 px-3 py-2 shadow-xl backdrop-blur">
+      <p className="mb-1 text-xs font-semibold text-foreground">{label}</p>
+      <p className="text-xs text-cyan-400">Engagement: {payload[0]?.value}%</p>
+      <p className="text-xs text-orange-400">Heart Rate: {payload[1]?.value} bpm</p>
+    </div>
+  );
+}
 
 function toStatus(score: number): { label: string; color: string } {
   if (score >= 0.8) return { label: "Highly Engaged", color: "text-green-500" };
@@ -74,7 +87,7 @@ export const Dashboard = () => {
         <p className="text-muted-foreground">Realtime overview for {selectedChild.child_name}</p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
         <div className="rounded-lg border border-border bg-card p-5">
           <div className="mb-2 flex items-center gap-2 text-muted-foreground">
             <Heart className="h-4 w-4 text-red-500" /> Heart Rate
@@ -99,6 +112,13 @@ export const Dashboard = () => {
 
         <div className="rounded-lg border border-border bg-card p-5">
           <div className="mb-2 flex items-center gap-2 text-muted-foreground">
+            <Droplets className="h-4 w-4 text-cyan-500" /> SpO2
+          </div>
+          <p className="text-2xl font-bold">{current?.spo2 ?? "--"}%</p>
+        </div>
+
+        <div className="rounded-lg border border-border bg-card p-5">
+          <div className="mb-2 flex items-center gap-2 text-muted-foreground">
             <Bell className="h-4 w-4 text-orange-500" /> Unread Alerts
           </div>
           <p className="text-2xl font-bold">{unreadAlerts}</p>
@@ -110,17 +130,26 @@ export const Dashboard = () => {
           <h2 className="mb-4 text-xl font-semibold">Engagement Trend</h2>
           <ResponsiveContainer width="100%" height={260}>
             <LineChart data={trendData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#454545" />
-              <XAxis dataKey="time" stroke="#71718288" tick={{ fontSize: 12 }} />
-              <YAxis stroke="#71718288" tick={{ fontSize: 12 }} domain={[0, 100]} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "#252525",
-                  border: "1px solid #454545",
-                  borderRadius: "8px",
-                }}
+              <defs>
+                <linearGradient id="dashboardEngagementFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#06b6d4" stopOpacity={0.35} />
+                  <stop offset="100%" stopColor="#06b6d4" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid vertical={false} strokeDasharray="4 8" stroke="rgba(113,113,130,0.26)" />
+              <XAxis dataKey="time" axisLine={false} tickLine={false} stroke="#717182" tick={{ fontSize: 12 }} />
+              <YAxis axisLine={false} tickLine={false} stroke="#717182" tick={{ fontSize: 12 }} domain={[0, 100]} />
+              <Tooltip content={<TrendTooltip />} cursor={{ stroke: "rgba(6,182,212,0.45)", strokeWidth: 1.5 }} />
+              <Area type="monotone" dataKey="engagement" stroke="none" fill="url(#dashboardEngagementFill)" />
+              <Line
+                type="monotone"
+                dataKey="engagement"
+                stroke="#06b6d4"
+                strokeWidth={3}
+                dot={false}
+                activeDot={{ r: 5, strokeWidth: 2, stroke: "#ffffff", fill: "#06b6d4" }}
               />
-              <Line type="monotone" dataKey="engagement" stroke="#a855f7" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="hr" stroke="#f97316" strokeWidth={2} dot={false} strokeOpacity={0.75} />
             </LineChart>
           </ResponsiveContainer>
         </div>
