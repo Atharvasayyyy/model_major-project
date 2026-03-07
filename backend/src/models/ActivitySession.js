@@ -12,6 +12,8 @@ const activitySessionSchema = new mongoose.Schema(
     activity: { type: String, required: true, trim: true },
     category: { type: String, required: true, trim: true },
     started_at: { type: Date, required: true, default: Date.now },
+    finished_at: { type: Date, default: null },
+    session_active: { type: Boolean, required: true, default: true },
   },
   { versionKey: false },
 );

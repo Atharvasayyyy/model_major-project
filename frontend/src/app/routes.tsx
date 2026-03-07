@@ -8,6 +8,8 @@ import { Register } from "./pages/Register";
 import { Dashboard } from "./pages/Dashboard";
 import { Children } from "./pages/Children";
 import { Monitoring } from "./pages/Monitoring";
+import { BaselineCalibration } from "./pages/BaselineCalibration";
+import { HobbySession } from "./pages/HobbySession";
 import { Analytics } from "./pages/Analytics";
 import { Reports } from "./pages/Reports";
 import { Alerts } from "./pages/Alerts";
@@ -33,6 +35,8 @@ export const router = createBrowserRouter([
         children: [
           { index: true, Component: Dashboard },
           { path: "children", Component: Children },
+          { path: "baseline", Component: BaselineCalibration },
+          { path: "hobby-session", Component: HobbySession },
           { path: "monitoring", Component: Monitoring },
           { path: "analytics", Component: Analytics },
           { path: "reports", Component: Reports },

@@ -14,7 +14,18 @@ async function getBaselineStatus(req, res) {
       return res.status(404).json({ message: "Child not found" });
     }
 
-    return res.json({ baseline_ready: isBaselineReady(child) });
+    const baseline_sample_count = child.baseline_in_progress
+      ? await BaselineSample.countDocuments({ child_id })
+      : 0;
+
+    return res.json({
+      baseline_ready: isBaselineReady(child),
+      baseline_in_progress: Boolean(child.baseline_in_progress),
+      baseline_started_at: child.baseline_started_at,
+      baseline_sample_count,
+      hr_baseline: child.hr_baseline,
+      rmssd_baseline: child.rmssd_baseline,
+    });
   } catch (error) {
     return res.status(500).json({ message: "Failed to fetch baseline status", error: error.message });
   }
@@ -33,6 +44,10 @@ async function startBaseline(req, res) {
     }
 
     await BaselineSample.deleteMany({ child_id });
+    child.baseline_in_progress = true;
+    child.baseline_started_at = new Date();
+    await child.save();
+
     return res.json({ message: "Baseline session started", child_id });
   } catch (error) {
     return res.status(500).json({ message: "Failed to start baseline", error: error.message });
@@ -75,11 +90,17 @@ async function finishBaseline(req, res) {
       return res.status(400).json({ message: "No baseline samples found" });
     }
 
+    if (samples.length < 200) {
+      return res.status(400).json({ message: "Minimum 200 baseline samples required before finish." });
+    }
+
     const hrBaseline = samples.reduce((sum, row) => sum + row.heart_rate, 0) / samples.length;
     const rmssdBaseline = samples.reduce((sum, row) => sum + row.hrv_rmssd, 0) / samples.length;
 
     child.hr_baseline = Number(hrBaseline.toFixed(2));
     child.rmssd_baseline = Number(rmssdBaseline.toFixed(2));
+    child.baseline_in_progress = false;
+    child.baseline_started_at = null;
     await child.save();
 
     await BaselineSample.deleteMany({ child_id });

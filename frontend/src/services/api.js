@@ -33,6 +33,8 @@ function mapSensor(entry, childId) {
     heart_rate: Number(entry?.heart_rate || 0),
     hrv_rmssd: Number(entry?.hrv_rmssd || 0),
     motion_level: Number(entry?.motion_level || 0),
+    spo2: Number(entry?.spo2 || 0),
+    restlessness_index: Number(entry?.restlessness_index || 0),
     engagement_score: Number(entry?.engagement_score || 0),
     arousal: Number(entry?.arousal || 0),
     valence: Number(entry?.valence || 0),
@@ -107,6 +109,44 @@ export async function finishBaseline(child_id) {
   return data;
 }
 
+export async function getBaselineStatus(childId) {
+  const { data } = await apiClient.get(`/baseline/status/${childId}`);
+  return {
+    baseline_ready: Boolean(data?.baseline_ready),
+    baseline_in_progress: Boolean(data?.baseline_in_progress),
+    baseline_started_at: data?.baseline_started_at || null,
+    baseline_sample_count: Number(data?.baseline_sample_count ?? 0),
+    hr_baseline: Number(data?.hr_baseline ?? 0),
+    rmssd_baseline: Number(data?.rmssd_baseline ?? 0),
+  };
+}
+
+export async function getSensorStatus(childId) {
+  const { data } = await apiClient.get(`/sensor-status/${childId}`);
+  return data;
+}
+
+export async function startActivitySession(child_id, activity) {
+  const { data } = await apiClient.post("/activity/start", { child_id, activity });
+  return data;
+}
+
+export async function finishActivitySession(child_id) {
+  const { data } = await apiClient.post("/activity/finish", { child_id });
+  return data;
+}
+
+export async function getActivityStatus(childId) {
+  const { data } = await apiClient.get(`/activity/status/${childId}`);
+  return {
+    session_active: Boolean(data?.session_active),
+    activity: data?.activity || null,
+    category: data?.category || null,
+    started_at: data?.started_at || null,
+    finished_at: data?.finished_at || null,
+  };
+}
+
 export async function postSensorData(payload) {
   const { data } = await apiClient.post("/sensor-data", payload);
   return data;
@@ -130,6 +170,8 @@ export async function getRealtimeAnalytics(childId) {
       heart_rate: latestSensor?.heart_rate || latestEngagement?.heart_rate,
       hrv_rmssd: latestSensor?.hrv_rmssd || latestEngagement?.hrv_rmssd,
       motion_level: latestSensor?.motion_level || latestEngagement?.motion_level,
+      spo2: latestSensor?.spo2 || latestEngagement?.spo2,
+      restlessness_index: latestSensor?.restlessness_index || latestEngagement?.restlessness_index,
       timestamp: latestEngagement?.timestamp || latestSensor?.timestamp,
     },
     childId,
@@ -162,6 +204,11 @@ export async function getAlerts(childId) {
   return data.map((row) => mapAlert(row, childId));
 }
 
+export async function getSensorStreamDebug() {
+  const { data } = await apiClient.get("/debug/sensor-stream");
+  return Array.isArray(data) ? data : [];
+}
+
 export const api = {
   baseUrl: API_BASE_URL,
   client: apiClient,
@@ -175,12 +222,18 @@ export const api = {
   startBaseline,
   recordBaseline,
   finishBaseline,
+  getBaselineStatus,
+  getSensorStatus,
+  startActivitySession,
+  finishActivitySession,
+  getActivityStatus,
   postSensorData,
   getRealtimeAnalytics,
   getEngagementTrend,
   getActivityInsights,
   getDailySummary,
   getAlerts,
+  getSensorStreamDebug,
 
   // Compatibility wrappers for existing app context usage
   async register(name, email, password) {

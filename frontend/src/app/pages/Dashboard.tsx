@@ -11,8 +11,6 @@ import {
   Tooltip,
   ResponsiveContainer,
   CartesianGrid,
-  BarChart,
-  Bar,
 } from "recharts";
 
 function TrendTooltip({ active, payload, label }: any) {
@@ -62,21 +60,17 @@ export const Dashboard = () => {
     [sensorData],
   );
 
-  const activityInsights = useMemo(() => {
-    const grouped = new Map<string, { total: number; count: number }>();
-    sensorData.forEach((d) => {
-      const prev = grouped.get(d.activity) || { total: 0, count: 0 };
-      grouped.set(d.activity, { total: prev.total + d.engagement_score, count: prev.count + 1 });
-    });
-
-    return Array.from(grouped.entries())
-      .map(([activity, stats]) => ({
-        activity,
-        avg_engagement: Number(((stats.total / stats.count) * 100).toFixed(1)),
-      }))
-      .sort((a, b) => b.avg_engagement - a.avg_engagement)
-      .slice(0, 6);
-  }, [sensorData]);
+  const liveSignals = useMemo(
+    () =>
+      sensorData.slice(-30).map((d) => ({
+        time: new Date(d.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        hr: d.heart_rate,
+        hrv: d.hrv_rmssd,
+        motion: Number((d.motion_level * 100).toFixed(1)),
+        spo2: d.spo2,
+      })),
+    [sensorData],
+  );
 
   const status = current ? toStatus(current.engagement_score) : null;
 
@@ -155,21 +149,24 @@ export const Dashboard = () => {
         </div>
 
         <div className="rounded-lg border border-border bg-card p-6">
-          <h2 className="mb-4 text-xl font-semibold">Activity Insights</h2>
+          <h2 className="mb-4 text-xl font-semibold">Live Sensor Signals</h2>
           <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={activityInsights}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#454545" />
-              <XAxis dataKey="activity" stroke="#71718288" tick={{ fontSize: 12 }} />
-              <YAxis stroke="#71718288" tick={{ fontSize: 12 }} domain={[0, 100]} />
+            <LineChart data={liveSignals}>
+              <CartesianGrid vertical={false} strokeDasharray="4 8" stroke="rgba(113,113,130,0.26)" />
+              <XAxis dataKey="time" axisLine={false} tickLine={false} stroke="#717182" tick={{ fontSize: 12 }} />
+              <YAxis axisLine={false} tickLine={false} stroke="#717182" tick={{ fontSize: 12 }} />
               <Tooltip
                 contentStyle={{
-                  backgroundColor: "#252525",
-                  border: "1px solid #454545",
-                  borderRadius: "8px",
+                  backgroundColor: "#111827f2",
+                  border: "1px solid #334155",
+                  borderRadius: "10px",
                 }}
               />
-              <Bar dataKey="avg_engagement" fill="#3b82f6" radius={[8, 8, 0, 0]} />
-            </BarChart>
+              <Line type="monotone" dataKey="hr" stroke="#ef4444" strokeWidth={2.4} dot={false} name="Heart Rate" />
+              <Line type="monotone" dataKey="hrv" stroke="#3b82f6" strokeWidth={2.4} dot={false} name="HRV" />
+              <Line type="monotone" dataKey="motion" stroke="#22c55e" strokeWidth={2.2} dot={false} name="Motion (%)" />
+              <Line type="monotone" dataKey="spo2" stroke="#06b6d4" strokeWidth={2.2} dot={false} name="SpO2" />
+            </LineChart>
           </ResponsiveContainer>
         </div>
       </div>

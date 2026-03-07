@@ -5,9 +5,9 @@ from pydantic import BaseModel, Field
 class SensorPayload(BaseModel):
     user_id: str = Field(..., description="Unique child identifier")
     activity: str = Field(..., description="Current hobby or activity name")
-    heart_rate: float = Field(..., gt=0, description="Current heart rate in bpm")
+    heart_rate: float = Field(..., ge=40, le=200, description="Current heart rate in bpm")
     hrv_rmssd: float = Field(..., gt=0, description="RMSSD value in milliseconds")
-    motion_level: float = Field(..., ge=0, description="Motion intensity from accelerometer")
+    motion_level: float = Field(..., description="Motion intensity from accelerometer")
     timestamp: datetime
 
 

@@ -5,6 +5,8 @@ import { api } from "../services/api";
 import {
   BarChart,
   Bar,
+  Cell,
+  ReferenceLine,
   LineChart,
   Line,
   Area,
@@ -24,6 +26,28 @@ function AnalyticsTooltip({ active, payload, label }: any) {
       <p className="text-xs text-cyan-400">Engagement: {payload[0]?.value}%</p>
     </div>
   );
+}
+
+function ActivityBarTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+
+  const score = Number(payload[0]?.value || 0);
+  return (
+    <div className="min-w-[190px] rounded-lg border border-border/80 bg-background/95 px-3 py-2 shadow-xl backdrop-blur">
+      <p className="mb-1 text-xs font-semibold text-foreground">{label}</p>
+      <p className="text-xs text-cyan-400">Avg Engagement: {score.toFixed(1)}%</p>
+      <p className="text-xs text-muted-foreground">
+        {score >= 80 ? "Excellent" : score >= 60 ? "Good" : score >= 40 ? "Moderate" : "Needs support"}
+      </p>
+    </div>
+  );
+}
+
+function activityBarColor(score: number) {
+  if (score >= 80) return "#22c55e";
+  if (score >= 60) return "#06b6d4";
+  if (score >= 40) return "#f59e0b";
+  return "#ef4444";
 }
 
 type TimeFilter = "today" | "week" | "month";
@@ -227,17 +251,26 @@ export const Analytics = () => {
         <h2 className="text-xl font-semibold mb-4">Activity vs Engagement Score</h2>
         <ResponsiveContainer width="100%" height={350}>
           <BarChart data={activityEngagement}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#454545" />
-            <XAxis dataKey="activity" stroke="#71718288" tick={{ fontSize: 12 }} />
-            <YAxis stroke="#71718288" tick={{ fontSize: 12 }} />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: "#252525",
-                border: "1px solid #454545",
-                borderRadius: "8px",
-              }}
+            <CartesianGrid vertical={false} strokeDasharray="4 8" stroke="rgba(113,113,130,0.26)" />
+            <XAxis
+              dataKey="activity"
+              axisLine={false}
+              tickLine={false}
+              stroke="#717182"
+              tick={{ fontSize: 12 }}
+              interval={0}
+              angle={-12}
+              textAnchor="end"
+              height={56}
             />
-            <Bar dataKey="engagement" fill="#a855f7" radius={[8, 8, 0, 0]} />
+            <YAxis axisLine={false} tickLine={false} stroke="#717182" tick={{ fontSize: 12 }} domain={[0, 100]} />
+            <Tooltip content={<ActivityBarTooltip />} cursor={{ fill: "rgba(148,163,184,0.12)" }} />
+            <ReferenceLine y={60} stroke="#38bdf8" strokeDasharray="5 5" strokeOpacity={0.8} />
+            <Bar dataKey="engagement" radius={[10, 10, 0, 0]} barSize={34}>
+              {activityEngagement.map((item) => (
+                <Cell key={`activity-${item.activity}`} fill={activityBarColor(Number(item.engagement))} />
+              ))}
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
 

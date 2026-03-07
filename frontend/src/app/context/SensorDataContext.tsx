@@ -10,6 +10,8 @@ export interface SensorData {
   heart_rate: number;
   hrv_rmssd: number;
   motion_level: number;
+  spo2: number;
+  restlessness_index: number;
   engagement_score: number;
   arousal: number;
   valence: number;
@@ -44,6 +46,8 @@ function normalizeSensor(raw: any, fallbackChildId: string): SensorData {
     heart_rate: Number(raw?.heart_rate ?? 0),
     hrv_rmssd: Number(raw?.hrv_rmssd ?? 0),
     motion_level: Number(raw?.motion_level ?? 0),
+    spo2: Number(raw?.spo2 ?? 0),
+    restlessness_index: Number(raw?.restlessness_index ?? 0),
     engagement_score: Number(raw?.engagement_score ?? 0),
     arousal: Number(raw?.arousal ?? 0),
     valence: Number(raw?.valence ?? 0),
@@ -68,7 +72,6 @@ export const SensorDataProvider = ({ children }: { children: ReactNode }) => {
   const [sensorData, setSensorData] = useState<SensorData[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [latestData, setLatestData] = useState<SensorData | null>(null);
-
   useEffect(() => {
     if (!isAuthenticated || !selectedChild) {
       setSensorData([]);
@@ -81,20 +84,37 @@ export const SensorDataProvider = ({ children }: { children: ReactNode }) => {
 
     const loadInitialData = async () => {
       try {
-        const [trendRows, alertRows] = await Promise.all([
-          api.getEngagementTrend(selectedChild.id),
-          api.getAlerts(selectedChild.id),
+        const [sensorStatus, sensorStream] = await Promise.all([
+          api.getSensorStatus(selectedChild.id),
+          api.getSensorStreamDebug(),
         ]);
-
         if (!isMounted) return;
 
-        const normalizedTrend = (trendRows || [])
+        const normalizedStream = (sensorStream || [])
+          .filter((row: any) => String(row?.child_id) === selectedChild.id)
           .map((row: any) => normalizeSensor(row, selectedChild.id))
           .sort((a: SensorData, b: SensorData) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-        setSensorData(normalizedTrend);
-        setLatestData(normalizedTrend.length ? normalizedTrend[normalizedTrend.length - 1] : null);
-        setAlerts((alertRows || []).map((row: any) => normalizeAlert(row, selectedChild.id)));
+        setSensorData(normalizedStream);
+
+        const statusRow = sensorStatus
+          ? normalizeSensor(
+            {
+              child_id: selectedChild.id,
+              activity: normalizedStream.length ? normalizedStream[normalizedStream.length - 1].activity : "Sensor Stream",
+              heart_rate: sensorStatus?.heart_rate,
+              hrv_rmssd: sensorStatus?.hrv_rmssd,
+              motion_level: sensorStatus?.motion_level,
+              spo2: sensorStatus?.spo2,
+              restlessness_index: sensorStatus?.restlessness_index,
+              timestamp: sensorStatus?.last_reading_timestamp || new Date().toISOString(),
+            },
+            selectedChild.id,
+          )
+          : null;
+
+        setLatestData(statusRow ?? (normalizedStream.length ? normalizedStream[normalizedStream.length - 1] : null));
+        setAlerts([]);
       } catch {
         // Keep current local state if backend is temporarily unavailable.
       }
@@ -102,24 +122,59 @@ export const SensorDataProvider = ({ children }: { children: ReactNode }) => {
 
     const loadRealtime = async () => {
       try {
-        const [realtimeRow, alertRows] = await Promise.all([
-          api.getRealtimeAnalytics(selectedChild.id),
-          api.getAlerts(selectedChild.id),
+        const [status, sessionStatus, sensorStatus, sensorStream] = await Promise.all([
+          api.getBaselineStatus(selectedChild.id),
+          api.getActivityStatus(selectedChild.id),
+          api.getSensorStatus(selectedChild.id),
+          api.getSensorStreamDebug(),
         ]);
-
         if (!isMounted) return;
 
-        if (realtimeRow) {
-          const normalized = normalizeSensor(realtimeRow, selectedChild.id);
-          setLatestData(normalized);
-          setSensorData((prev) => {
-            const exists = prev.some((row) => row.timestamp === normalized.timestamp && row.activity === normalized.activity);
-            if (exists) return prev;
-            return [...prev.slice(-299), normalized];
-          });
+        const ready = Boolean(status?.baseline_ready) && !Boolean(status?.baseline_in_progress);
+        const sessionActive = Boolean(sessionStatus?.session_active);
+
+        const normalizedStream = (sensorStream || [])
+          .filter((row: any) => String(row?.child_id) === selectedChild.id)
+          .map((row: any) => normalizeSensor(row, selectedChild.id))
+          .sort((a: SensorData, b: SensorData) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+        const statusRow = sensorStatus
+          ? normalizeSensor(
+            {
+              child_id: selectedChild.id,
+              activity: normalizedStream.length ? normalizedStream[normalizedStream.length - 1].activity : "Sensor Stream",
+              heart_rate: sensorStatus?.heart_rate,
+              hrv_rmssd: sensorStatus?.hrv_rmssd,
+              motion_level: sensorStatus?.motion_level,
+              spo2: sensorStatus?.spo2,
+              restlessness_index: sensorStatus?.restlessness_index,
+              timestamp: sensorStatus?.last_reading_timestamp || new Date().toISOString(),
+            },
+            selectedChild.id,
+          )
+          : null;
+
+        let effectiveLatest = statusRow ?? (normalizedStream.length ? normalizedStream[normalizedStream.length - 1] : null);
+
+        if (ready && sessionActive) {
+          const [realtimeRow, alertRows] = await Promise.all([
+            api.getRealtimeAnalytics(selectedChild.id),
+            api.getAlerts(selectedChild.id),
+          ]);
+
+          if (!isMounted) return;
+
+          if (realtimeRow) {
+            effectiveLatest = normalizeSensor(realtimeRow, selectedChild.id);
+          }
+
+          setAlerts((alertRows || []).map((row: any) => normalizeAlert(row, selectedChild.id)));
+        } else {
+          setAlerts([]);
         }
 
-        setAlerts((alertRows || []).map((row: any) => normalizeAlert(row, selectedChild.id)));
+        setSensorData(normalizedStream);
+        setLatestData(effectiveLatest);
       } catch {
         // Keep displaying previous data while polling retries.
       }
@@ -143,7 +198,6 @@ export const SensorDataProvider = ({ children }: { children: ReactNode }) => {
 
     const payload = {
       child_id: selectedChild.id,
-      activity: data.activity,
       heart_rate: data.heart_rate,
       hrv_rmssd: data.hrv_rmssd,
       motion_level: data.motion_level,

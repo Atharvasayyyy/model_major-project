@@ -1,17 +1,14 @@
-# MindPulse Engagement Detection Model
+# MindPulse Model Service (Python)
 
-MindPulse estimates child engagement from wearable physiological signals using a Valence-Arousal framework and a regression model.
+This folder contains the standalone Python model service and training code for MindPulse.
 
-## Objective
+In the current integrated app, the Node.js backend computes engagement using the same baseline-normalized logic (deterministic service wrapper), while this Python project remains the model/training reference and optional serving endpoint.
 
-Predict a continuous engagement score in the range `0..1` from wearable sensor inputs so the model can generalize across indoor and outdoor activities.
+## 1. Purpose
 
-## Sensors and Inputs
+Predict engagement score (`0..1`) from physiological signals with baseline normalization.
 
-- `MAX30102`: heart rate and PPG-derived HRV (`hrv_rmssd`)
-- `MPU6050`: accelerometer (`ax`, `ay`, `az`) converted to `motion_level`
-
-Final training/inference fields:
+Inputs:
 
 - `heart_rate`
 - `hrv_rmssd`
@@ -19,130 +16,145 @@ Final training/inference fields:
 - `hr_baseline`
 - `rmssd_baseline`
 
-Target:
+Optional context fields in full system:
 
+- `activity_category`
+- `spo2`
+- `restlessness_index`
+
+Outputs:
+
+- `arousal`
+- `valence`
 - `engagement_score`
 
-## Scientific Mapping
+## 2. Baseline Logic (Core)
 
-- Arousal increases with heart rate elevation relative to baseline.
-- Valence increases with HRV (RMSSD) relative to baseline.
-- Engagement is high when arousal and valence are both high.
+Every child requires personal baseline values before analytics.
 
-Core equations:
+Equations used by the system:
 
 - `HR_norm = (heart_rate - hr_baseline) / hr_baseline`
-- `RMSSD_norm = hrv_rmssd / rmssd_baseline`
-- `arousal = normalize(HR_norm)`
-- `valence = normalize(RMSSD_norm)`
+- `RMSSD_norm = (hrv_rmssd - rmssd_baseline) / rmssd_baseline`
+- `arousal = sigmoid(HR_norm - RMSSD_norm)`
+- `valence = sigmoid(-motion_level)`
 - `engagement_score = clip(arousal * valence, 0, 1)`
 
-## Project Structure
+`engagement_score` represents physiological engagement in the range `0..1`.
 
-- `app.py`: FastAPI serving endpoints
-- `src/mindpulse/prepare_wesad.py`: build MindPulse training CSV from WESAD
-- `src/mindpulse/train.py`: train `RandomForestRegressor`
-- `src/mindpulse/model.py`: inference wrapper and baseline loading
-- `config/baselines.json`: per-user baseline values
+Motion normalization used by backend ingestion:
+
+- `motionLevel = sqrt(ax^2 + ay^2 + az^2)`
+- `motion_level = abs(motionLevel - 9.8)`
+
+HRV definition used by ESP32 firmware:
+
+- `RMSSD = sqrt(mean((RR_i - RR_(i-1))^2))`
+
+RR intervals are derived from heartbeat detection.
+
+Signal validation rules:
+
+- `heart_rate` must be between `40` and `200`
+- `hrv_rmssd` must be `> 0`
+- `motion_level` must be numeric
+
+Invalid sensor readings are ignored and should not be used for scoring.
+
+Why baseline matters:
+
+- two children can have very different resting HR/HRV
+- without baseline normalization, stress/engagement can be misclassified
+
+## 3. Files
+
+- `app.py`: FastAPI server (`/health`, `/predict`)
+- `src/mindpulse/model.py`: inference wrapper and baseline lookup
+- `src/mindpulse/engagement.py`: valence-arousal calculations
+- `src/mindpulse/train.py`: model training pipeline
+- `src/mindpulse/prepare_wesad.py`: prepare training CSV
+- `config/baselines.json`: baseline data
 - `models/mindpulse_rf.joblib`: trained model artifact
 
-## Quick Start
+`mindpulse_rf.joblib` is experimental.
+
+Current runtime backend inference uses deterministic physiological equations.
+
+The Python model service is used for training experiments and potential future ML deployment.
+
+## 4. Setup
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### Train Using Existing CSV
-
-```bash
-python -m src.mindpulse.train --data data/wesad_mindpulse_train.csv --model-out models/mindpulse_rf.joblib
-```
-
-### Serve API
+Run API:
 
 ```bash
 uvicorn app:app --reload
 ```
 
-Endpoints:
+Run API (Windows + project `.venv`):
 
-- `GET /health`
-- `POST /predict`
-
-## Postman Test Payload
-
-`POST http://127.0.0.1:8000/predict`
-
-```json
-{
-  "user_id": "U001",
-  "activity": "Reading",
-  "heart_rate": 84,
-  "hrv_rmssd": 46,
-  "motion_level": 0.15,
-  "timestamp": "2026-03-06T10:30:00Z"
-}
+```powershell
+Set-Location "c:\Users\athar\OneDrive\Desktop\IOT\model iot\model"
+& "c:\Users\athar\OneDrive\Desktop\IOT\model iot\.venv\Scripts\python.exe" -m uvicorn app:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-## Build Training Data from WESAD
+Optional experimental RF mode:
 
-Download and prepare directly from Kaggle:
+```bash
+MINDPULSE_ENABLE_EXPERIMENTAL_RF=true uvicorn app:app --reload
+```
+
+## 5. Training
+
+Train from existing CSV:
+
+```bash
+python -m src.mindpulse.train --data data/wesad_mindpulse_train.csv --model-out models/mindpulse_rf.joblib
+```
+
+Prepare WESAD dataset CSV:
 
 ```bash
 python -m src.mindpulse.prepare_wesad --download --output data/wesad_mindpulse_train.csv --save-debug
 ```
 
-Or use local extracted WESAD path:
+## 6. Integration With Node + Frontend + ESP32
 
-```bash
-python -m src.mindpulse.prepare_wesad --dataset-root "C:/path/to/wesad" --output data/wesad_mindpulse_train.csv
+Current runtime architecture used in this repository:
+
+ESP32 -> Python serial bridge -> Node `/api/sensor-data` -> MongoDB -> analytics API -> React dashboard
+
+Model equations are applied in Node backend service layer (`calculateEngagement`) with baseline-normalized metrics.
+
+Inference pipeline:
+
+sensor reading
+
+-> validation
+
+-> baseline normalization
+
+-> arousal calculation
+
+-> valence calculation
+
+-> engagement score
+
+The Python model service can still be used as a separate inference endpoint or for retraining/export workflows.
+
+## 7. Known Runtime Error Sources (Observed)
+
+- Browser extension async listener warning: not model code.
+- Backend `ERR_CONNECTION_REFUSED`: backend process down or DB connectivity issue.
+- Analytics pre-baseline errors: caused by requesting engagement data before baseline is ready.
+- Serial COM access denied: COM port locked by another process.
+
+
+
+```powershell
+Set-Location "c:\Users\athar\OneDrive\Desktop\IOT\model iot\model"
+& "c:\Users\athar\OneDrive\Desktop\IOT\model iot\.venv\Scripts\python.exe" -m uvicorn app:app --host 127.0.0.1 --port 8000 --reload
 ```
-
-Generated training CSV columns:
-
-- `heart_rate`
-- `hrv_rmssd`
-- `motion_level`
-- `hr_baseline`
-- `rmssd_baseline`
-- `engagement_score`
-
-## Deploy Model to Hugging Face
-
-This repository includes an automated publisher script:
-
-```bash
-python -m src.mindpulse.publish_hf --repo-id AtharvaXX/mindpulse --model-path models/mindpulse_rf.joblib
-```
-
-You can authenticate in either way:
-
-1. `huggingface-cli login`
-2. set env var `HUGGINGFACE_HUB_TOKEN`
-
-Optional arguments:
-
-- `--private`: create private model repo
-- `--prepare-only`: build deployment folder without upload
-- `--local-dir .hf_bundle`: custom staging directory
-
-The script uploads:
-
-- trained model (`mindpulse_rf.joblib`)
-- lightweight inference module
-- model card (`README.md`) for Hugging Face
-- minimal runtime requirements
-
-## Baselines
-
-`config/baselines.json` stores per-user physiological resting baselines. If a user baseline does not exist, the `default` baseline is used.
-
-## Notes
-
-- WESAD/SWELL/PhysioNet are used to learn physiological patterns, while MindPulse-specific fields are derived during preprocessing.
-- The current model is regression-based and activity-agnostic, as required.
-
-
-
-
- uvicorn app:app --reload

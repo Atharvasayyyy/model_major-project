@@ -4,11 +4,11 @@ const sensorDataSchema = new mongoose.Schema(
   {
     child_id: { type: mongoose.Schema.Types.ObjectId, ref: "Child", required: true },
     activity: { type: String, required: true },
-    activity_category: { type: String, required: true },
     heart_rate: { type: Number, required: true },
     hrv_rmssd: { type: Number, required: true },
     motion_level: { type: Number, required: true },
-    engagement_score: { type: Number, required: true },
+    spo2: { type: Number, default: null },
+    restlessness_index: { type: Number, default: null },
     timestamp: { type: Date, required: true },
   },
   { versionKey: false },

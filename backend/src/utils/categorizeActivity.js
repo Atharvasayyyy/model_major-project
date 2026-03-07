@@ -4,7 +4,7 @@ const activityMap = {
   drawing: "creative_indoor",
   football: "outdoor_sport",
   cycling: "outdoor_sport",
-  gaming: "passive_leisure",
+  gaming: "digital_activity",
 };
 
 function categorizeActivity(activity = "") {

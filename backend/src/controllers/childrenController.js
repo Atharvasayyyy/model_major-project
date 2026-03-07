@@ -15,6 +15,7 @@ async function createChild(req, res) {
       parent_id: req.user._id,
       hr_baseline: null,
       rmssd_baseline: null,
+      baseline_in_progress: false,
     });
 
     return res.status(201).json(child);

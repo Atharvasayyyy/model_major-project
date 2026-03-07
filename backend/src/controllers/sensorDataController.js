@@ -2,10 +2,16 @@ const Child = require("../models/Child");
 const SensorData = require("../models/SensorData");
 const EngagementResult = require("../models/EngagementResult");
 const ActivitySession = require("../models/ActivitySession");
+const BaselineSample = require("../models/BaselineSample");
 const Alert = require("../models/Alert");
 const { predictEngagement } = require("../services/engagementModel");
 
-const SENSOR_OFFLINE_THRESHOLD_MS = 10_000;
+const SENSOR_OFFLINE_THRESHOLD_MS = 5_000;
+
+function isStrictEngagementSignal(heart_rate, hrv_rmssd) {
+  return Number.isFinite(heart_rate) && heart_rate >= 40 && heart_rate <= 200
+    && Number.isFinite(hrv_rmssd) && hrv_rmssd > 0;
+}
 
 async function createAlertsIfNeeded({ child, child_id, heart_rate, hrv_rmssd, engagement_score }) {
   const alerts = [];
@@ -43,19 +49,31 @@ async function createAlertsIfNeeded({ child, child_id, heart_rate, hrv_rmssd, en
 
 async function ingestSensorData(req, res) {
   try {
-    const { child_id, heart_rate, hrv_rmssd, motion_level, timestamp } = req.body;
+    const {
+      child_id,
+      heart_rate,
+      hrv_rmssd,
+      motion_level,
+      spo2,
+      restlessness_index,
+      timestamp,
+    } = req.body;
 
     if (req.sensorPayloadSource === "serial-bridge") {
       console.log("[SERIAL SENSOR DATA RECEIVED]");
       console.log(`heart_rate: ${heart_rate}`);
       console.log(`hrv_rmssd: ${hrv_rmssd}`);
       console.log(`motion_level: ${motion_level}`);
+      if (spo2 !== undefined) console.log(`spo2: ${spo2}`);
+      if (restlessness_index !== undefined) console.log(`restlessness_index: ${restlessness_index}`);
     } else {
       console.log("[SENSOR DATA RECEIVED]");
       console.log(`child_id: ${child_id}`);
       console.log(`heart_rate: ${heart_rate}`);
       console.log(`hrv_rmssd: ${hrv_rmssd}`);
       console.log(`motion_level: ${motion_level}`);
+      if (spo2 !== undefined) console.log(`spo2: ${spo2}`);
+      if (restlessness_index !== undefined) console.log(`restlessness_index: ${restlessness_index}`);
     }
 
     const child = await Child.findById(child_id);
@@ -63,48 +81,83 @@ async function ingestSensorData(req, res) {
       return res.status(404).json({ message: "Child not found" });
     }
 
-    const session = await ActivitySession.findOne({ child_id: child._id });
-    if (!session) {
-      return res.status(400).json({ message: "No active activity session. Set activity from dashboard first." });
+    const eventTime = timestamp ? new Date(timestamp) : new Date();
+    const normalizedHeartRate = Number.isFinite(heart_rate) ? heart_rate : 0;
+    const normalizedHrvRmssd = Number.isFinite(hrv_rmssd) ? hrv_rmssd : 0;
+
+    // Track device liveness even for warm-up/invalid physiological values.
+    await Child.updateOne({ _id: child_id }, { sensor_last_seen_at: eventTime });
+
+    const rawActivity = child.baseline_in_progress ? "Baseline Calibration" : "Sensor Stream";
+    const rawRow = await SensorData.create({
+      child_id,
+      activity: rawActivity,
+      heart_rate: normalizedHeartRate,
+      hrv_rmssd: normalizedHrvRmssd,
+      motion_level,
+      spo2,
+      restlessness_index,
+      timestamp: eventTime,
+    });
+
+    if (child.baseline_in_progress) {
+      await BaselineSample.create({
+        child_id,
+        heart_rate: normalizedHeartRate,
+        hrv_rmssd: normalizedHrvRmssd,
+        motion_level,
+        timestamp: eventTime,
+        session_active: true,
+      });
+
+      return res.status(201).json({
+        message: "Baseline sample collected",
+        baseline_mode: true,
+        sensor_data: rawRow,
+      });
+    }
+
+    const baselineReady = Number.isFinite(child.hr_baseline) && child.hr_baseline > 0
+      && Number.isFinite(child.rmssd_baseline) && child.rmssd_baseline > 0;
+    const session = await ActivitySession.findOne({ child_id: child._id, session_active: true });
+
+    if (!baselineReady || !session) {
+      return res.status(201).json({
+        message: "Sensor data stored. Engagement scoring skipped until baseline is ready and activity session is active.",
+        scoring_skipped: true,
+        baseline_ready: baselineReady,
+        activity_session_active: Boolean(session),
+        sensor_data: rawRow,
+      });
+    }
+
+    if (!isStrictEngagementSignal(normalizedHeartRate, normalizedHrvRmssd)) {
+      return res.status(202).json({
+        message: "Stored sensor reading but skipped engagement scoring",
+        ignored: true,
+        reason: "Engagement mode requires heart_rate in 40..200 and hrv_rmssd > 0",
+        sensor_data: rawRow,
+      });
     }
 
     const activity = session.activity;
     const activity_category = session.category;
 
-    if (!Number.isFinite(child.hr_baseline) || child.hr_baseline <= 0
-      || !Number.isFinite(child.rmssd_baseline) || child.rmssd_baseline <= 0) {
-      return res.status(400).json({ message: "Baseline calibration required before analytics." });
-    }
-
-    const eventTime = timestamp ? new Date(timestamp) : new Date();
-
     const prediction = await predictEngagement({
-      heart_rate,
-      hrv_rmssd,
+      heart_rate: normalizedHeartRate,
+      hrv_rmssd: normalizedHrvRmssd,
       motion_level,
       hr_baseline: child.hr_baseline,
       rmssd_baseline: child.rmssd_baseline,
       activity_category,
     });
 
-    const rawRow = await SensorData.create({
-      child_id,
-      activity,
-      activity_category,
-      heart_rate,
-      hrv_rmssd,
-      motion_level,
-      engagement_score: prediction.engagement_score,
-      timestamp: eventTime,
-    });
+    rawRow.activity = activity;
+    await rawRow.save();
 
     const resultRow = await EngagementResult.create({
       child_id,
       activity,
-      activity_category,
-      heart_rate,
-      hrv_rmssd,
-      motion_level,
       arousal: prediction.arousal,
       valence: prediction.valence,
       engagement_score: prediction.engagement_score,
@@ -114,8 +167,8 @@ async function ingestSensorData(req, res) {
     const alerts = await createAlertsIfNeeded({
       child,
       child_id,
-      heart_rate,
-      hrv_rmssd,
+      heart_rate: normalizedHeartRate,
+      hrv_rmssd: normalizedHrvRmssd,
       engagement_score: prediction.engagement_score,
     });
 
@@ -139,27 +192,41 @@ async function getSensorStatus(req, res) {
     }
 
     const latest = await SensorData.findOne({ child_id }).sort({ timestamp: -1 });
+    const lastSeen = child.sensor_last_seen_at ? new Date(child.sensor_last_seen_at) : null;
+
+    // Mark device online when any recent sensor row has been received.
+    const latestRowTime = latest ? new Date(latest.timestamp) : null;
+    const referenceTime = latestRowTime ?? lastSeen;
+    const ageMs = referenceTime ? Date.now() - referenceTime.getTime() : Number.POSITIVE_INFINITY;
+    const device_status = ageMs <= SENSOR_OFFLINE_THRESHOLD_MS ? "online" : "offline";
+
     if (!latest) {
       return res.json({
         child_id,
         last_reading: null,
+        last_reading_timestamp: null,
+        last_sensor_ping_at: lastSeen ? lastSeen.toISOString() : null,
         heart_rate: null,
         hrv_rmssd: null,
         motion_level: null,
-        device_status: "offline",
+        spo2: null,
+        restlessness_index: null,
+        device_status,
       });
     }
 
     const lastReading = new Date(latest.timestamp);
-    const ageMs = Date.now() - lastReading.getTime();
-    const device_status = ageMs <= SENSOR_OFFLINE_THRESHOLD_MS ? "online" : "offline";
 
     return res.json({
       child_id,
       last_reading: lastReading.toISOString(),
+      last_reading_timestamp: lastReading.toISOString(),
+      last_sensor_ping_at: lastSeen ? lastSeen.toISOString() : lastReading.toISOString(),
       heart_rate: latest.heart_rate,
       hrv_rmssd: latest.hrv_rmssd,
       motion_level: latest.motion_level,
+      spo2: latest.spo2 ?? null,
+      restlessness_index: latest.restlessness_index ?? null,
       device_status,
     });
   } catch (error) {
@@ -173,7 +240,7 @@ async function getSensorStreamDebug(req, res) {
     const readings = await SensorData.find({ child_id: { $in: childIds } })
       .sort({ timestamp: -1 })
       .limit(20)
-      .select("child_id activity heart_rate hrv_rmssd motion_level timestamp");
+      .select("child_id activity heart_rate hrv_rmssd motion_level spo2 restlessness_index timestamp");
 
     return res.json(readings);
   } catch (error) {

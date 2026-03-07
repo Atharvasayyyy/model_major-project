@@ -26,8 +26,10 @@ interface ChildrenContextType {
 const ChildrenContext = createContext<ChildrenContextType | undefined>(undefined);
 
 function normalizeChild(raw: any): Child {
-  const hrBaseline = Number(raw?.hr_baseline ?? 78);
-  const rmssdBaseline = Number(raw?.rmssd_baseline ?? 52);
+  const hrBaselineRaw = raw?.hr_baseline;
+  const rmssdBaselineRaw = raw?.rmssd_baseline;
+  const hrBaseline = hrBaselineRaw === null || hrBaselineRaw === undefined ? 0 : Number(hrBaselineRaw);
+  const rmssdBaseline = rmssdBaselineRaw === null || rmssdBaselineRaw === undefined ? 0 : Number(rmssdBaselineRaw);
   return {
     id: String(raw?.id ?? raw?._id ?? raw?.child_id ?? `C${Math.random().toString(36).slice(2, 9)}`),
     child_name: String(raw?.child_name ?? "Unknown"),

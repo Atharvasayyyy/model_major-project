@@ -10,6 +10,8 @@ function validateSensorPayload(req, res, next) {
   const child_id = body.child_id;
   const heart_rate = body.heart_rate ?? body.heartRate;
   const hrv_rmssd = body.hrv_rmssd ?? body.hrvRmssd;
+  const spo2 = body.spo2;
+  const restlessness_index = body.restlessness_index ?? body.restlessnessIndex;
 
   // Serial payload contains gravity-inclusive motionLevel; normalize to delta from 9.8.
   let motion_level = body.motion_level;
@@ -26,6 +28,8 @@ function validateSensorPayload(req, res, next) {
     heart_rate,
     hrv_rmssd,
     motion_level,
+    spo2,
+    restlessness_index,
   };
 
   req.sensorPayloadSource = (body.heartRate !== undefined || body.hrvRmssd !== undefined || hasSerialMotion)
@@ -35,13 +39,12 @@ function validateSensorPayload(req, res, next) {
   const isValid =
     typeof child_id === "string"
     && mongoose.Types.ObjectId.isValid(child_id)
-    && isValidNumber(heart_rate)
-    && heart_rate >= 40
-    && heart_rate <= 200
-    && isValidNumber(hrv_rmssd)
-    && hrv_rmssd >= 0
-    && hrv_rmssd <= 200
-    && isValidNumber(motion_level);
+    && isValidNumber(motion_level)
+    && (heart_rate === undefined || isValidNumber(heart_rate))
+    && (hrv_rmssd === undefined || isValidNumber(hrv_rmssd))
+    && (spo2 === undefined || (isValidNumber(spo2) && spo2 >= 0 && spo2 <= 100))
+    && (restlessness_index === undefined
+      || (isValidNumber(restlessness_index) && restlessness_index >= 0 && restlessness_index <= 10));
 
   if (!isValid) {
     return res.status(400).json({ message: "Invalid sensor data format" });

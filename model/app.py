@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 
 from fastapi import FastAPI
 
@@ -8,12 +9,13 @@ from src.mindpulse.schemas import EngagementOutput, SensorPayload
 
 BASELINE_PATH = Path("config/baselines.json")
 MODEL_PATH = Path("models/mindpulse_rf.joblib")
+ENABLE_EXPERIMENTAL_RF = os.getenv("MINDPULSE_ENABLE_EXPERIMENTAL_RF", "false").lower() == "true"
 
 app = FastAPI(title="MindPulse Engagement Detection API", version="1.0.0")
 
 mindpulse = MindPulseModel(
     baseline_file=BASELINE_PATH,
-    ml_model_file=MODEL_PATH if MODEL_PATH.exists() else None,
+    ml_model_file=MODEL_PATH if (ENABLE_EXPERIMENTAL_RF and MODEL_PATH.exists()) else None,
 )
 
 

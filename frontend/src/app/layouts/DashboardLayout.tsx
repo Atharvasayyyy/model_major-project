@@ -1,11 +1,15 @@
 import { Outlet, useNavigate, useLocation, Navigate } from "react-router";
+import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useChildren } from "../context/ChildrenContext";
 import { useSensorData } from "../context/SensorDataContext";
+import { api } from "../services/api";
 import {
   Activity,
   LayoutDashboard,
   Users,
+  Clock3,
+  Timer,
   Radio,
   TrendingUp,
   FileText,
@@ -20,6 +24,37 @@ export const DashboardLayout = () => {
   const { alerts } = useSensorData();
   const navigate = useNavigate();
   const location = useLocation();
+  const [baselineReady, setBaselineReady] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const checkBaseline = async () => {
+      if (!isAuthenticated || !selectedChild) {
+        if (mounted) setBaselineReady(null);
+        return;
+      }
+
+      try {
+        const status = await api.getBaselineStatus(selectedChild.id);
+        if (!mounted) return;
+
+        setBaselineReady(status.baseline_ready);
+
+        const allowed = ["/app/baseline", "/app/children"];
+        if (!status.baseline_ready && !allowed.some((prefix) => location.pathname.startsWith(prefix))) {
+          navigate("/app/baseline", { replace: true });
+        }
+      } catch {
+        if (mounted) setBaselineReady(null);
+      }
+    };
+
+    void checkBaseline();
+    return () => {
+      mounted = false;
+    };
+  }, [isAuthenticated, selectedChild, location.pathname, navigate]);
 
   if (!isAuthenticated) {
     return <Navigate to="/auth/login" replace />;
@@ -28,6 +63,8 @@ export const DashboardLayout = () => {
   const navItems = [
     { path: "/app", icon: LayoutDashboard, label: "Dashboard" },
     { path: "/app/children", icon: Users, label: "Children" },
+    { path: "/app/baseline", icon: Clock3, label: "Baseline Calibration" },
+    { path: "/app/hobby-session", icon: Timer, label: "Hobby Session" },
     { path: "/app/monitoring", icon: Radio, label: "Live Monitoring" },
     { path: "/app/analytics", icon: TrendingUp, label: "Analytics" },
     { path: "/app/reports", icon: FileText, label: "Reports" },
@@ -84,12 +121,17 @@ export const DashboardLayout = () => {
             return (
               <button
                 key={item.path}
+                disabled={
+                  baselineReady === false
+                  && item.path !== "/app/children"
+                  && item.path !== "/app/baseline"
+                }
                 onClick={() => navigate(item.path)}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
                   isActive
                     ? "bg-purple-600 text-white"
                     : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                }`}
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
               >
                 <Icon className="w-5 h-5" />
                 <span className="flex-1 text-left">{item.label}</span>

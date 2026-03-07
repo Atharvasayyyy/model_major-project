@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import exp
 
 
 def clip01(value: float) -> float:
@@ -12,13 +13,13 @@ def normalize_hr(heart_rate: float, hr_baseline: float) -> float:
 
 
 def normalize_rmssd(hrv_rmssd: float, rmssd_baseline: float) -> float:
-    return hrv_rmssd / rmssd_baseline
+    return (hrv_rmssd - rmssd_baseline) / rmssd_baseline
 
 
-def scale_to_unit(value: float, lower: float, upper: float) -> float:
-    if upper <= lower:
-        raise ValueError("upper must be greater than lower")
-    return clip01((value - lower) / (upper - lower))
+def sigmoid(value: float) -> float:
+    # Clamp extreme ranges for numerical stability.
+    bounded = max(-60.0, min(60.0, value))
+    return 1.0 / (1.0 + exp(-bounded))
 
 
 @dataclass
@@ -41,9 +42,8 @@ def estimate_components(
     hr_norm = normalize_hr(heart_rate, hr_baseline)
     rmssd_norm = normalize_rmssd(hrv_rmssd, rmssd_baseline)
 
-    # Typical normalized ranges are mapped to [0, 1] for stable scoring.
-    arousal = scale_to_unit(hr_norm, lower=-0.2, upper=0.4)
-    valence = scale_to_unit(rmssd_norm, lower=0.5, upper=1.5)
+    arousal = sigmoid(hr_norm - rmssd_norm)
+    valence = sigmoid(-motion_level)
     engagement_score = clip01(arousal * valence)
 
     context_note = infer_motion_context(heart_rate, motion_level, hr_baseline)

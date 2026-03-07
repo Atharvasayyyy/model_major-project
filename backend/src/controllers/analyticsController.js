@@ -12,21 +12,14 @@ function isBaselineReady(child) {
     && Number.isFinite(child?.rmssd_baseline) && child.rmssd_baseline > 0;
 }
 
-function requireBaselineReady(child, res) {
-  if (isBaselineReady(child)) {
-    return true;
-  }
-
-  res.status(400).json({ message: "Baseline calibration required before analytics." });
-  return false;
-}
-
 async function getRealtime(req, res) {
   try {
     const { child_id } = req.params;
     const child = await ensureChildOwnership(child_id, req.user._id);
     if (!child) return res.status(404).json({ message: "Child not found" });
-    if (!requireBaselineReady(child, res)) return;
+    if (!isBaselineReady(child)) {
+      return res.json({ latest_sensor: null, latest_engagement: null, message: "No engagement data yet" });
+    }
 
     const latestSensor = await SensorData.findOne({ child_id }).sort({ timestamp: -1 });
     const latestEngagement = await EngagementResult.findOne({ child_id }).sort({ timestamp: -1 });
@@ -42,7 +35,9 @@ async function getEngagementTrend(req, res) {
     const { child_id } = req.params;
     const child = await ensureChildOwnership(child_id, req.user._id);
     if (!child) return res.status(404).json({ message: "Child not found" });
-    if (!requireBaselineReady(child, res)) return;
+    if (!isBaselineReady(child)) {
+      return res.json([]);
+    }
 
     const trend = await EngagementResult.find({ child_id })
       .sort({ timestamp: 1 });
@@ -58,7 +53,9 @@ async function getActivityInsights(req, res) {
     const { child_id } = req.params;
     const child = await ensureChildOwnership(child_id, req.user._id);
     if (!child) return res.status(404).json({ message: "Child not found" });
-    if (!requireBaselineReady(child, res)) return;
+    if (!isBaselineReady(child)) {
+      return res.json([]);
+    }
 
     const insights = await EngagementResult.aggregate([
       { $match: { child_id: child._id } },
@@ -89,7 +86,14 @@ async function getDailySummary(req, res) {
     const { child_id } = req.params;
     const child = await ensureChildOwnership(child_id, req.user._id);
     if (!child) return res.status(404).json({ message: "Child not found" });
-    if (!requireBaselineReady(child, res)) return;
+    if (!isBaselineReady(child)) {
+      return res.json({
+        average_heart_rate: 0,
+        average_hrv: 0,
+        average_engagement_score: 0,
+        message: "No engagement data yet",
+      });
+    }
 
     const [sensorAgg] = await SensorData.aggregate([
       { $match: { child_id: child._id } },
@@ -127,7 +131,9 @@ async function getAlerts(req, res) {
     const { child_id } = req.params;
     const child = await ensureChildOwnership(child_id, req.user._id);
     if (!child) return res.status(404).json({ message: "Child not found" });
-    if (!requireBaselineReady(child, res)) return;
+    if (!isBaselineReady(child)) {
+      return res.json([]);
+    }
 
     const alerts = await Alert.find({ child_id }).sort({ createdAt: -1 }).limit(50);
     return res.json(alerts);
