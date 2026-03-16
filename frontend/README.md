@@ -154,7 +154,48 @@ Build check:
 npm run build
 ```
 
-## 4. How Frontend Is Attached To ESP32 + Backend + Model
+## 4. Deploy On Vercel Free Tier
+
+MindPulse frontend is ready for Vercel deployment with a free Vercel domain and an environment-based backend URL.
+
+### Required environment variable
+
+Set this in the Vercel project settings:
+
+```env
+VITE_API_BASE_URL=https://<backend-domain>/api
+```
+
+Example:
+
+```env
+VITE_API_BASE_URL=https://mindpulse-backend.onrender.com/api
+```
+
+### Vercel settings
+
+- Framework preset: `Vite`
+- Root directory: `frontend`
+- Install command: `npm install`
+- Build command: `npm run build`
+- Output directory: `dist`
+
+### Deploy steps
+
+1. Deploy the backend first on Render or Railway and copy its free domain.
+2. Push the repository to GitHub.
+3. In Vercel, import the same repository.
+4. Set the root directory to `frontend`.
+5. Add `VITE_API_BASE_URL=https://<backend-domain>/api`.
+6. Deploy and open the Vercel domain, for example `https://mindpulse.vercel.app`.
+
+### Production behavior
+
+- The frontend reads `import.meta.env.VITE_API_BASE_URL` at build time.
+- All API requests use that value instead of a hardcoded localhost URL.
+- Direct navigation to app routes is handled by the Vercel rewrite config in `frontend/vercel.json`.
+
+## 5. How Frontend Is Attached To ESP32 + Backend + Model
 
 Frontend never reads ESP32 directly. The attachment path is:
 
@@ -162,7 +203,7 @@ ESP32 -> Python serial bridge -> Node backend `/api/sensor-data` -> `sensor_data
 
 The model logic is applied inside backend ingestion/analytics flow (baseline-normalized engagement).
 
-## 5. Real Errors Encountered And Actual Causes
+## 6. Real Errors Encountered And Actual Causes
 
 ### "A listener indicated an asynchronous response..."
 
@@ -186,7 +227,7 @@ The model logic is applied inside backend ingestion/analytics flow (baseline-nor
 - Source: COM port locked by another process (Serial Monitor, another bridge instance).
 - Fix: close conflicting process and rerun bridge on correct COM port.
 
-## 6. Expected Runtime Behavior
+## 7. Expected Runtime Behavior
 
 1. User adds/selects child.
 2. App checks baseline status.
@@ -194,3 +235,13 @@ The model logic is applied inside backend ingestion/analytics flow (baseline-nor
 4. After baseline completes -> user can start hobby session.
 5. During session, dashboard updates with live sensor + engagement data.
 6. Alerts/trends/insights become available through analytics APIs.
+
+## 8. Deployment Verification Checklist
+
+After both services are deployed:
+
+1. Open `https://<backend-domain>/health` and confirm it returns `{ "status": "ok" }`.
+2. Open the Vercel domain and confirm the dashboard loads.
+3. Start the local serial bridge with the deployed backend URL.
+4. Confirm MongoDB Atlas receives new `sensor_data` records.
+5. Confirm live metrics update in the hosted dashboard.

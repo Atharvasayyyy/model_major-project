@@ -158,3 +158,4 @@ The Python model service can still be used as a separate inference endpoint or f
 Set-Location "c:\Users\athar\OneDrive\Desktop\IOT\model iot\model"
 & "c:\Users\athar\OneDrive\Desktop\IOT\model iot\.venv\Scripts\python.exe" -m uvicorn app:app --host 127.0.0.1 --port 8000 --reload
 ```
+

@@ -226,7 +226,68 @@ Health check:
 GET http://localhost:5000/health
 ```
 
-## 6. How Frontend, Model, and ESP32 Are Connected
+Health response:
+
+```json
+{
+  "status": "ok"
+}
+```
+
+## 6. Deploy On Render Free Tier
+
+MindPulse backend is ready to deploy as a Node web service on Render or Railway without changing the folder structure.
+
+### Render settings
+
+- Service type: `Web Service`
+- Root directory: `backend`
+- Environment: `Node`
+- Build command: `npm install`
+- Start command: `npm start`
+- Health check path: `/health`
+
+### Required environment variables
+
+Add these in the Render dashboard:
+
+```env
+MONGO_URI=mongodb+srv://<user>:<password>@<cluster>/<database>
+JWT_SECRET=<strong-random-secret>
+```
+
+Notes:
+
+- Render injects its own port automatically, so you do not need to set `PORT` manually.
+- The app already listens with `process.env.PORT || 5000`.
+- MongoDB Atlas must allow connections from Render and the configured database user.
+- Render free tier gives a free domain such as `https://mindpulse-backend.onrender.com`.
+
+### Deploy steps
+
+1. Push the repository to GitHub.
+2. In Render, create a new `Web Service` from the GitHub repo.
+3. Set the root directory to `backend`.
+4. Add the environment variables shown above.
+5. Deploy and wait for the service URL.
+6. Verify the service with `GET https://<your-render-domain>/health`.
+
+### Railway alternative
+
+If you use Railway free tier instead:
+
+- Root directory: `backend`
+- Start command: `npm start`
+- Environment variables: `MONGO_URI`, `JWT_SECRET`
+- Free Railway domain format: `https://<project>.up.railway.app`
+
+## 7. Cloud Runtime Architecture
+
+After deployment, the production data flow is:
+
+ESP32 -> local Python serial bridge -> deployed backend `/api/sensor-data` -> MongoDB Atlas -> analytics endpoints -> Vercel frontend.
+
+## 8. How Frontend, Model, and ESP32 Are Connected
 
 - ESP32 sends raw sensor lines over serial.
 - `serial_sensor_bridge.py` parses and forwards to backend.
@@ -234,7 +295,7 @@ GET http://localhost:5000/health
 - Frontend polls analytics endpoints and renders live cards/charts.
 - Baseline is mandatory before hobby monitoring and analytics.
 
-## 7. Actual Errors Observed And Root Causes
+## 9. Actual Errors Observed And Root Causes
 
 ### Browser extension async listener error
 
@@ -256,7 +317,7 @@ GET http://localhost:5000/health
 - No `Raw Serial` output: wrong COM port or ESP32 not streaming.
 - `Access is denied` on COM port: another process has locked the port.
 
-## 8. Practical Debug Checklist
+## 10. Practical Debug Checklist
 
 1. `GET /health` returns `status: ok`.
 2. Baseline status for child is checked.

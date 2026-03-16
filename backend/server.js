@@ -23,12 +23,7 @@ app.use(cors());
 app.use(express.json());
 
 app.get("/health", (_req, res) => {
-  const dbConnected = isDbReady();
-  res.status(dbConnected ? 200 : 503).json({
-    status: dbConnected ? "ok" : "degraded",
-    service: "mindpulse-backend",
-    database: dbConnected ? "connected" : "disconnected",
-  });
+  res.status(200).json({ status: "ok" });
 });
 
 app.use("/api", (_req, res, next) => {

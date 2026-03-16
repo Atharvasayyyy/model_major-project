@@ -19,6 +19,15 @@ DEFAULT_API_URL = "http://localhost:5000/api/sensor-data"
 DEFAULT_BAUDRATE = 115200
 
 
+def normalize_api_url(api_url: str) -> str:
+    normalized = api_url.rstrip("/")
+    if normalized.endswith("/api/sensor-data"):
+        return normalized
+    if normalized.endswith("/api"):
+        return f"{normalized}/sensor-data"
+    return f"{normalized}/api/sensor-data"
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Forward ESP32 serial JSON to MindPulse backend")
     parser.add_argument("--child-id", required=True, help="Target child_id in backend")
@@ -93,9 +102,10 @@ def try_parse_serial_json(line: str, frame_buffer: str) -> tuple[dict[str, Any] 
 
 def main() -> int:
     args = parse_args()
+    api_url = normalize_api_url(args.api_url)
 
     print(f"Listening to ESP32 serial on {args.port} @ {args.baud}...")
-    print(f"Forwarding to backend: {args.api_url}")
+    print(f"Forwarding to backend: {api_url}")
 
     while True:
         ser: serial.Serial | None = None
@@ -123,7 +133,7 @@ def main() -> int:
                 print(f"Transformed Payload: {payload}")
 
                 try:
-                    response = requests.post(args.api_url, json=payload, timeout=10)
+                    response = requests.post(api_url, json=payload, timeout=10)
                     print(f"Backend Response Code: {response.status_code}")
                     if response.text:
                         print(f"Response Body: {response.text}")
