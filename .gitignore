@@ -11,3 +11,4 @@ frontend/dist/
 frontend/.env
 backend/node_modules/
 backend/.env
+.sensor_bridge_config.json

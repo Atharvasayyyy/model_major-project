@@ -5,7 +5,7 @@ import { useChildren } from "../context/ChildrenContext";
 import { api } from "../services/api";
 
 const BASELINE_DURATION_SECONDS = 5 * 60;
-const MIN_BASELINE_SAMPLES = 200;
+const SENSOR_STREAM_STALE_MS = 30_000;
 
 function formatTime(totalSeconds: number): string {
   const minutes = Math.floor(totalSeconds / 60)
@@ -13,6 +13,15 @@ function formatTime(totalSeconds: number): string {
     .padStart(2, "0");
   const seconds = (totalSeconds % 60).toString().padStart(2, "0");
   return `${minutes}:${seconds}`;
+}
+
+function resolveChildId(value: any): string {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") {
+    if (typeof value.$oid === "string") return value.$oid;
+    if (typeof value._id === "string") return value._id;
+  }
+  return "";
 }
 
 export const BaselineCalibration = () => {
@@ -103,11 +112,32 @@ export const BaselineCalibration = () => {
 
     const sensorPoll = setInterval(async () => {
       try {
-        const sensor = await api.getSensorStatus(selectedChild.id);
-        const hr = Number(sensor?.heart_rate);
-        const hrv = Number(sensor?.hrv_rmssd);
-        const motion = Number(sensor?.motion_level);
-        const online = sensor?.device_status === "online";
+        const [sensorResult, streamResult] = await Promise.allSettled([
+          api.getSensorStatus(selectedChild.id),
+          api.getSensorStreamDebug(),
+        ]);
+
+        const sensor = sensorResult.status === "fulfilled" ? sensorResult.value : null;
+        const stream = streamResult.status === "fulfilled" ? streamResult.value : [];
+
+        const childStreamRows = (Array.isArray(stream) ? stream : [])
+          .filter((row: any) => resolveChildId(row?.child_id) === selectedChild.id)
+          .sort(
+            (a: any, b: any) =>
+              new Date(b?.timestamp || 0).getTime() - new Date(a?.timestamp || 0).getTime(),
+          );
+
+        const latestChildStream = childStreamRows.length ? childStreamRows[0] : null;
+        const latestStreamTs = latestChildStream?.timestamp ? new Date(latestChildStream.timestamp).getTime() : 0;
+        const streamIsFresh = Number.isFinite(latestStreamTs)
+          && latestStreamTs > 0
+          && (Date.now() - latestStreamTs) <= SENSOR_STREAM_STALE_MS;
+
+        const hr = Number(sensor?.heart_rate ?? latestChildStream?.heart_rate);
+        const hrv = Number(sensor?.hrv_rmssd ?? latestChildStream?.hrv_rmssd);
+        const motion = Number(sensor?.motion_level ?? latestChildStream?.motion_level);
+        const sensorOnline = sensor?.device_status === "online";
+        const online = sensorOnline || streamIsFresh;
 
         setSensorOnline(online);
 
@@ -116,12 +146,18 @@ export const BaselineCalibration = () => {
         const safeMotion = Number.isFinite(motion) ? motion : null;
         setLiveHeartRate(safeHr);
 
-        const ready = online && isValidSensorReading(safeHr, safeHrv);
+        const hasValidPhysiology = isValidSensorReading(safeHr, safeHrv);
+        const ready = online;
         setSensorReady(ready);
 
         if (!online) {
-          setSensorHint("No sensor reading detected. Please attach the sensor.");
-        } else if (!ready) {
+          const hasOtherChildData = Array.isArray(stream) && stream.some((row: any) => resolveChildId(row?.child_id) !== selectedChild.id);
+          if (hasOtherChildData) {
+            setSensorHint("Sensor stream detected for another child profile. Select the correct child or reconnect this child device.");
+          } else {
+            setSensorHint("No sensor reading detected. Please attach the sensor.");
+          }
+        } else if (!hasValidPhysiology) {
           setSensorHint("Place finger on sensor and wait for stable readings.");
         } else {
           setSensorHint("Sensor connected. Live readings are valid.");
@@ -159,16 +195,6 @@ export const BaselineCalibration = () => {
         const sampleCount = Number(status?.baseline_sample_count || 0);
         setBaselineSampleCount(sampleCount);
 
-        if (sampleCount < MIN_BASELINE_SAMPLES) {
-          setError(`Collecting baseline samples (${sampleCount}/${MIN_BASELINE_SAMPLES}). Keep sensor stable.`);
-          setSecondsLeft(5);
-          finishTriggeredRef.current = false;
-          setIsRunning(true);
-          setStatusLabel("Collecting baseline samples");
-          setIsSubmitting(false);
-          return;
-        }
-
         const response = await api.finishBaseline(selectedChild.id);
         const hrBaseline = Number(response?.hr_baseline || 0);
         const rmssdBaseline = Number(response?.rmssd_baseline || 0);
@@ -180,9 +206,15 @@ export const BaselineCalibration = () => {
         });
 
         setResult({ hr_baseline: hrBaseline, rmssd_baseline: rmssdBaseline });
-        setIsComplete(true);
         setBaselineInProgress(false);
-        setStatusLabel("Completed");
+
+        if (Number.isFinite(hrBaseline) && hrBaseline > 0 && Number.isFinite(rmssdBaseline) && rmssdBaseline > 0) {
+          setIsComplete(true);
+          setStatusLabel("Completed");
+        } else {
+          setStatusLabel("Finished with warning");
+          setError(response?.warning || "Baseline finished, but no usable samples were available.");
+        }
       } catch (e: any) {
         setError(e?.response?.data?.message || "Failed to finish baseline calibration.");
         setStatusLabel("Failed");
@@ -285,7 +317,7 @@ export const BaselineCalibration = () => {
           </div>
           <p className="text-sm text-muted-foreground">Progress: {progressPct.toFixed(0)}%</p>
           {baselineInProgress && !isComplete && (
-            <p className="text-xs text-muted-foreground">Samples collected: {baselineSampleCount}/{MIN_BASELINE_SAMPLES} minimum</p>
+            <p className="text-xs text-muted-foreground">Samples collected: {baselineSampleCount}</p>
           )}
         </div>
 

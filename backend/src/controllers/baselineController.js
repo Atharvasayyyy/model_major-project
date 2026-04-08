@@ -1,5 +1,6 @@
 const Child = require("../models/Child");
 const BaselineSample = require("../models/BaselineSample");
+const SensorData = require("../models/SensorData");
 
 function isBaselineReady(child) {
   return Number.isFinite(child?.hr_baseline) && child.hr_baseline > 0
@@ -85,14 +86,45 @@ async function finishBaseline(req, res) {
       return res.status(404).json({ message: "Child not found" });
     }
 
-    const samples = await BaselineSample.find({ child_id });
+    const baselineSamples = await BaselineSample.find({ child_id }).sort({ timestamp: 1 });
+    const recommendedMinSamples = 200;
+
+    let source = "baseline-samples";
+    let samples = baselineSamples;
+
     if (!samples.length) {
-      return res.status(400).json({ message: "No baseline samples found" });
+      const recentSensorRows = await SensorData.find({ child_id })
+        .sort({ timestamp: -1 })
+        .limit(recommendedMinSamples)
+        .select("heart_rate hrv_rmssd timestamp");
+
+      const usableSensorRows = recentSensorRows.filter((row) => Number.isFinite(row.heart_rate) && row.heart_rate > 0
+        && Number.isFinite(row.hrv_rmssd) && row.hrv_rmssd > 0);
+
+      if (usableSensorRows.length) {
+        source = "sensor-data-fallback";
+        samples = usableSensorRows.reverse();
+      }
     }
 
-    if (samples.length < 200) {
-      return res.status(400).json({ message: "Minimum 200 baseline samples required before finish." });
+    if (!samples.length) {
+      child.baseline_in_progress = false;
+      child.baseline_started_at = null;
+      await child.save();
+
+      return res.status(200).json({
+        message: "Baseline session finished, but no usable sensor samples were available to calculate a baseline.",
+        child_id,
+        baseline_ready: false,
+        sample_count: 0,
+        recommended_min_samples: recommendedMinSamples,
+        warning: "Attach the sensor and keep it stable while baseline is running, then try again.",
+      });
     }
+
+    const lowSampleWarning = samples.length < recommendedMinSamples
+      ? `Baseline finished with ${samples.length} samples. Recommended minimum is ${recommendedMinSamples}.`
+      : null;
 
     const hrBaseline = samples.reduce((sum, row) => sum + row.heart_rate, 0) / samples.length;
     const rmssdBaseline = samples.reduce((sum, row) => sum + row.hrv_rmssd, 0) / samples.length;
@@ -110,6 +142,10 @@ async function finishBaseline(req, res) {
       child_id,
       hr_baseline: child.hr_baseline,
       rmssd_baseline: child.rmssd_baseline,
+      sample_count: samples.length,
+      recommended_min_samples: recommendedMinSamples,
+      source,
+      warning: lowSampleWarning,
     });
   } catch (error) {
     return res.status(500).json({ message: "Failed to finish baseline", error: error.message });

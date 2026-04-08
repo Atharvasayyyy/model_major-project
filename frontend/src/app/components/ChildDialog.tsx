@@ -9,11 +9,12 @@ interface ChildDialogProps {
 
 export const ChildDialog = ({ child, onClose }: ChildDialogProps) => {
   const { addChild, updateChild } = useChildren();
+  const [submitError, setSubmitError] = useState("");
   const [formData, setFormData] = useState({
     child_name: "",
     age: "",
     grade: "",
-    device_id: "",
+    device_id: `esp32-${Date.now()}`,
     hr_baseline: "78",
     rmssd_baseline: "52",
   });
@@ -33,6 +34,7 @@ export const ChildDialog = ({ child, onClose }: ChildDialogProps) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitError("");
     
     const data = {
       child_name: formData.child_name,
@@ -43,13 +45,16 @@ export const ChildDialog = ({ child, onClose }: ChildDialogProps) => {
       rmssd_baseline: parseInt(formData.rmssd_baseline),
     };
 
-    if (child) {
-      await updateChild(child.id, data);
-    } else {
-      await addChild(data);
+    try {
+      if (child) {
+        await updateChild(child.id, data);
+      } else {
+        await addChild(data);
+      }
+      onClose();
+    } catch (e: any) {
+      setSubmitError(e?.response?.data?.message || "Failed to save child profile. Please verify device id and try again.");
     }
-    
-    onClose();
   };
 
   return (
@@ -68,6 +73,12 @@ export const ChildDialog = ({ child, onClose }: ChildDialogProps) => {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {submitError && (
+            <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+              {submitError}
+            </div>
+          )}
+
           <div>
             <label className="block text-sm mb-2">Child Name</label>
             <input

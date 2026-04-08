@@ -8,6 +8,7 @@ function validateSensorPayload(req, res, next) {
   const body = req.body || {};
 
   const child_id = body.child_id;
+  const device_id = typeof body.device_id === "string" ? body.device_id.trim() : undefined;
   const heart_rate = body.heart_rate ?? body.heartRate;
   const hrv_rmssd = body.hrv_rmssd ?? body.hrvRmssd;
   const spo2 = body.spo2;
@@ -25,6 +26,7 @@ function validateSensorPayload(req, res, next) {
   req.body = {
     ...body,
     child_id,
+    device_id,
     heart_rate,
     hrv_rmssd,
     motion_level,
@@ -37,8 +39,7 @@ function validateSensorPayload(req, res, next) {
     : "default";
 
   const isValid =
-    typeof child_id === "string"
-    && mongoose.Types.ObjectId.isValid(child_id)
+    ((typeof child_id === "string" && mongoose.Types.ObjectId.isValid(child_id)) || Boolean(device_id))
     && isValidNumber(motion_level)
     && (heart_rate === undefined || isValidNumber(heart_rate))
     && (hrv_rmssd === undefined || isValidNumber(hrv_rmssd))

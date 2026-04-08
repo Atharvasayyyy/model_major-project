@@ -55,6 +55,15 @@ function normalizeSensor(raw: any, fallbackChildId: string): SensorData {
   };
 }
 
+function resolveChildId(value: any, fallbackChildId: string): string {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") {
+    if (typeof value.$oid === "string") return value.$oid;
+    if (typeof value._id === "string") return value._id;
+  }
+  return fallbackChildId;
+}
+
 function normalizeAlert(raw: any, fallbackChildId: string): Alert {
   return {
     id: String(raw?.id ?? raw?._id ?? `A${Date.now()}${Math.random().toString(36).slice(2, 6)}`),
@@ -83,101 +92,105 @@ export const SensorDataProvider = ({ children }: { children: ReactNode }) => {
     let isMounted = true;
 
     const loadInitialData = async () => {
-      try {
-        const [sensorStatus, sensorStream] = await Promise.all([
-          api.getSensorStatus(selectedChild.id),
-          api.getSensorStreamDebug(),
-        ]);
-        if (!isMounted) return;
+      const [sensorStatusResult, sensorStreamResult] = await Promise.allSettled([
+        api.getSensorStatus(selectedChild.id),
+        api.getSensorStreamDebug(),
+      ]);
 
-        const normalizedStream = (sensorStream || [])
-          .filter((row: any) => String(row?.child_id) === selectedChild.id)
-          .map((row: any) => normalizeSensor(row, selectedChild.id))
-          .sort((a: SensorData, b: SensorData) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      if (!isMounted) return;
 
-        setSensorData(normalizedStream);
+      const sensorStatus = sensorStatusResult.status === "fulfilled" ? sensorStatusResult.value : null;
+      const sensorStream = sensorStreamResult.status === "fulfilled" ? sensorStreamResult.value : [];
 
-        const statusRow = sensorStatus
-          ? normalizeSensor(
-            {
-              child_id: selectedChild.id,
-              activity: normalizedStream.length ? normalizedStream[normalizedStream.length - 1].activity : "Sensor Stream",
-              heart_rate: sensorStatus?.heart_rate,
-              hrv_rmssd: sensorStatus?.hrv_rmssd,
-              motion_level: sensorStatus?.motion_level,
-              spo2: sensorStatus?.spo2,
-              restlessness_index: sensorStatus?.restlessness_index,
-              timestamp: sensorStatus?.last_reading_timestamp || new Date().toISOString(),
-            },
-            selectedChild.id,
-          )
-          : null;
+      const normalizedStream = (sensorStream || [])
+        .filter((row: any) => resolveChildId(row?.child_id, "") === selectedChild.id)
+        .map((row: any) => normalizeSensor(row, selectedChild.id))
+        .sort((a: SensorData, b: SensorData) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-        setLatestData(statusRow ?? (normalizedStream.length ? normalizedStream[normalizedStream.length - 1] : null));
-        setAlerts([]);
-      } catch {
-        // Keep current local state if backend is temporarily unavailable.
-      }
+      setSensorData(normalizedStream);
+
+      const statusRow = sensorStatus
+        ? normalizeSensor(
+          {
+            child_id: selectedChild.id,
+            activity: normalizedStream.length ? normalizedStream[normalizedStream.length - 1].activity : "Sensor Stream",
+            heart_rate: sensorStatus?.heart_rate,
+            hrv_rmssd: sensorStatus?.hrv_rmssd,
+            motion_level: sensorStatus?.motion_level,
+            spo2: sensorStatus?.spo2,
+            restlessness_index: sensorStatus?.restlessness_index,
+            timestamp: sensorStatus?.last_reading_timestamp || new Date().toISOString(),
+          },
+          selectedChild.id,
+        )
+        : null;
+
+      setLatestData(statusRow ?? (normalizedStream.length ? normalizedStream[normalizedStream.length - 1] : null));
+      setAlerts([]);
     };
 
     const loadRealtime = async () => {
-      try {
-        const [status, sessionStatus, sensorStatus, sensorStream] = await Promise.all([
-          api.getBaselineStatus(selectedChild.id),
-          api.getActivityStatus(selectedChild.id),
-          api.getSensorStatus(selectedChild.id),
-          api.getSensorStreamDebug(),
+      const [sensorStatusResult, sensorStreamResult, baselineResult, activityResult] = await Promise.allSettled([
+        api.getSensorStatus(selectedChild.id),
+        api.getSensorStreamDebug(),
+        api.getBaselineStatus(selectedChild.id),
+        api.getActivityStatus(selectedChild.id),
+      ]);
+
+      if (!isMounted) return;
+
+      const sensorStatus = sensorStatusResult.status === "fulfilled" ? sensorStatusResult.value : null;
+      const sensorStream = sensorStreamResult.status === "fulfilled" ? sensorStreamResult.value : [];
+      const status = baselineResult.status === "fulfilled" ? baselineResult.value : null;
+      const sessionStatus = activityResult.status === "fulfilled" ? activityResult.value : null;
+
+      const ready = Boolean(status?.baseline_ready) && !Boolean(status?.baseline_in_progress);
+      const sessionActive = Boolean(sessionStatus?.session_active);
+
+      const normalizedStream = (sensorStream || [])
+        .filter((row: any) => resolveChildId(row?.child_id, "") === selectedChild.id)
+        .map((row: any) => normalizeSensor(row, selectedChild.id))
+        .sort((a: SensorData, b: SensorData) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+      const statusRow = sensorStatus
+        ? normalizeSensor(
+          {
+            child_id: selectedChild.id,
+            activity: normalizedStream.length ? normalizedStream[normalizedStream.length - 1].activity : "Sensor Stream",
+            heart_rate: sensorStatus?.heart_rate,
+            hrv_rmssd: sensorStatus?.hrv_rmssd,
+            motion_level: sensorStatus?.motion_level,
+            spo2: sensorStatus?.spo2,
+            restlessness_index: sensorStatus?.restlessness_index,
+            timestamp: sensorStatus?.last_reading_timestamp || new Date().toISOString(),
+          },
+          selectedChild.id,
+        )
+        : null;
+
+      let effectiveLatest = statusRow ?? (normalizedStream.length ? normalizedStream[normalizedStream.length - 1] : null);
+
+      if (ready && sessionActive) {
+        const [realtimeResult, alertsResult] = await Promise.allSettled([
+          api.getRealtimeAnalytics(selectedChild.id),
+          api.getAlerts(selectedChild.id),
         ]);
+
         if (!isMounted) return;
 
-        const ready = Boolean(status?.baseline_ready) && !Boolean(status?.baseline_in_progress);
-        const sessionActive = Boolean(sessionStatus?.session_active);
-
-        const normalizedStream = (sensorStream || [])
-          .filter((row: any) => String(row?.child_id) === selectedChild.id)
-          .map((row: any) => normalizeSensor(row, selectedChild.id))
-          .sort((a: SensorData, b: SensorData) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-
-        const statusRow = sensorStatus
-          ? normalizeSensor(
-            {
-              child_id: selectedChild.id,
-              activity: normalizedStream.length ? normalizedStream[normalizedStream.length - 1].activity : "Sensor Stream",
-              heart_rate: sensorStatus?.heart_rate,
-              hrv_rmssd: sensorStatus?.hrv_rmssd,
-              motion_level: sensorStatus?.motion_level,
-              spo2: sensorStatus?.spo2,
-              restlessness_index: sensorStatus?.restlessness_index,
-              timestamp: sensorStatus?.last_reading_timestamp || new Date().toISOString(),
-            },
-            selectedChild.id,
-          )
-          : null;
-
-        let effectiveLatest = statusRow ?? (normalizedStream.length ? normalizedStream[normalizedStream.length - 1] : null);
-
-        if (ready && sessionActive) {
-          const [realtimeRow, alertRows] = await Promise.all([
-            api.getRealtimeAnalytics(selectedChild.id),
-            api.getAlerts(selectedChild.id),
-          ]);
-
-          if (!isMounted) return;
-
-          if (realtimeRow) {
-            effectiveLatest = normalizeSensor(realtimeRow, selectedChild.id);
-          }
-
-          setAlerts((alertRows || []).map((row: any) => normalizeAlert(row, selectedChild.id)));
-        } else {
-          setAlerts([]);
+        if (realtimeResult.status === "fulfilled" && realtimeResult.value) {
+          effectiveLatest = normalizeSensor(realtimeResult.value, selectedChild.id);
         }
 
-        setSensorData(normalizedStream);
-        setLatestData(effectiveLatest);
-      } catch {
-        // Keep displaying previous data while polling retries.
+        if (alertsResult.status === "fulfilled") {
+          setAlerts((alertsResult.value || []).map((row: any) => normalizeAlert(row, selectedChild.id)));
+        }
+      } else {
+        setAlerts([]);
       }
+
+      setSensorData(normalizedStream);
+      setLatestData(effectiveLatest);
     };
 
     void loadInitialData();

@@ -6,7 +6,7 @@ const BaselineSample = require("../models/BaselineSample");
 const Alert = require("../models/Alert");
 const { predictEngagement } = require("../services/engagementModel");
 
-const SENSOR_OFFLINE_THRESHOLD_MS = 5_000;
+const SENSOR_OFFLINE_THRESHOLD_MS = 30_000;
 
 function isStrictEngagementSignal(heart_rate, hrv_rmssd) {
   return Number.isFinite(heart_rate) && heart_rate >= 40 && heart_rate <= 200
@@ -51,6 +51,7 @@ async function ingestSensorData(req, res) {
   try {
     const {
       child_id,
+      device_id,
       heart_rate,
       hrv_rmssd,
       motion_level,
@@ -61,6 +62,7 @@ async function ingestSensorData(req, res) {
 
     if (req.sensorPayloadSource === "serial-bridge") {
       console.log("[SERIAL SENSOR DATA RECEIVED]");
+      if (device_id) console.log(`device_id: ${device_id}`);
       console.log(`heart_rate: ${heart_rate}`);
       console.log(`hrv_rmssd: ${hrv_rmssd}`);
       console.log(`motion_level: ${motion_level}`);
@@ -76,21 +78,38 @@ async function ingestSensorData(req, res) {
       if (restlessness_index !== undefined) console.log(`restlessness_index: ${restlessness_index}`);
     }
 
-    const child = await Child.findById(child_id);
-    if (!child) {
-      return res.status(404).json({ message: "Child not found" });
+    let child = null;
+    let resolvedChildId = child_id;
+
+    if (typeof child_id === "string" && child_id) {
+      child = await Child.findById(child_id);
     }
+
+    if (!child && device_id) {
+      // Single-device mode fallback: route reading by registered device ID.
+      child = await Child.findOne({ device_id }).sort({ createdAt: -1 });
+      resolvedChildId = child ? String(child._id) : null;
+    }
+
+    if (!child) {
+      if (device_id) {
+        console.warn(`[SENSOR ROUTING] No child matched device_id=${device_id}`);
+      }
+      return res.status(404).json({ message: "Child not found for provided child_id/device_id" });
+    }
+
+    console.log(`[SENSOR ROUTING] Mapped to child_id=${resolvedChildId}`);
 
     const eventTime = timestamp ? new Date(timestamp) : new Date();
     const normalizedHeartRate = Number.isFinite(heart_rate) ? heart_rate : 0;
     const normalizedHrvRmssd = Number.isFinite(hrv_rmssd) ? hrv_rmssd : 0;
 
     // Track device liveness even for warm-up/invalid physiological values.
-    await Child.updateOne({ _id: child_id }, { sensor_last_seen_at: eventTime });
+    await Child.updateOne({ _id: resolvedChildId }, { sensor_last_seen_at: eventTime });
 
     const rawActivity = child.baseline_in_progress ? "Baseline Calibration" : "Sensor Stream";
     const rawRow = await SensorData.create({
-      child_id,
+      child_id: resolvedChildId,
       activity: rawActivity,
       heart_rate: normalizedHeartRate,
       hrv_rmssd: normalizedHrvRmssd,
@@ -102,7 +121,7 @@ async function ingestSensorData(req, res) {
 
     if (child.baseline_in_progress) {
       await BaselineSample.create({
-        child_id,
+        child_id: resolvedChildId,
         heart_rate: normalizedHeartRate,
         hrv_rmssd: normalizedHrvRmssd,
         motion_level,
@@ -166,7 +185,7 @@ async function ingestSensorData(req, res) {
 
     const alerts = await createAlertsIfNeeded({
       child,
-      child_id,
+      child_id: resolvedChildId,
       heart_rate: normalizedHeartRate,
       hrv_rmssd: normalizedHrvRmssd,
       engagement_score: prediction.engagement_score,
@@ -191,7 +210,20 @@ async function getSensorStatus(req, res) {
       return res.status(404).json({ message: "Child not found" });
     }
 
-    const latest = await SensorData.findOne({ child_id }).sort({ timestamp: -1 });
+    let latest = await SensorData.findOne({ child_id }).sort({ timestamp: -1 });
+
+    // Fallback for legacy/misaligned profiles: if this child has no rows yet,
+    // use latest reading from sibling profiles under the same parent with same device_id.
+    if (!latest && child.device_id) {
+      const siblingIds = (await Child.find({
+        parent_id: req.user._id,
+        device_id: child.device_id,
+      }).select("_id")).map((row) => row._id);
+
+      if (siblingIds.length > 0) {
+        latest = await SensorData.findOne({ child_id: { $in: siblingIds } }).sort({ timestamp: -1 });
+      }
+    }
     const lastSeen = child.sensor_last_seen_at ? new Date(child.sensor_last_seen_at) : null;
 
     // Mark device online when any recent sensor row has been received.

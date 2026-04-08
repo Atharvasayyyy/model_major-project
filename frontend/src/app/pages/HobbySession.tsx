@@ -5,6 +5,7 @@ import { useChildren } from "../context/ChildrenContext";
 import { api } from "../services/api";
 
 const SESSION_SECONDS = 5 * 60;
+const SENSOR_STREAM_STALE_MS = 30_000;
 const ACTIVITY_OPTIONS = [
   "Reading",
   "Homework",
@@ -21,6 +22,15 @@ function formatTime(totalSeconds: number): string {
     .padStart(2, "0");
   const seconds = (totalSeconds % 60).toString().padStart(2, "0");
   return `${minutes}:${seconds}`;
+}
+
+function resolveChildId(value: any): string {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") {
+    if (typeof value.$oid === "string") return value.$oid;
+    if (typeof value._id === "string") return value._id;
+  }
+  return "";
 }
 
 export const HobbySession = () => {
@@ -114,11 +124,32 @@ export const HobbySession = () => {
 
     const statusPoll = setInterval(async () => {
       try {
-        const sensor = await api.getSensorStatus(selectedChild.id);
-        const hr = Number(sensor?.heart_rate);
-        const hrv = Number(sensor?.hrv_rmssd);
-        const motion = Number(sensor?.motion_level);
-        const online = sensor?.device_status === "online";
+        const [sensorResult, streamResult] = await Promise.allSettled([
+          api.getSensorStatus(selectedChild.id),
+          api.getSensorStreamDebug(),
+        ]);
+
+        const sensor = sensorResult.status === "fulfilled" ? sensorResult.value : null;
+        const stream = streamResult.status === "fulfilled" ? streamResult.value : [];
+
+        const childStreamRows = (Array.isArray(stream) ? stream : [])
+          .filter((row: any) => resolveChildId(row?.child_id) === selectedChild.id)
+          .sort(
+            (a: any, b: any) =>
+              new Date(b?.timestamp || 0).getTime() - new Date(a?.timestamp || 0).getTime(),
+          );
+
+        const latestChildStream = childStreamRows.length ? childStreamRows[0] : null;
+        const latestStreamTs = latestChildStream?.timestamp ? new Date(latestChildStream.timestamp).getTime() : 0;
+        const streamIsFresh = Number.isFinite(latestStreamTs)
+          && latestStreamTs > 0
+          && (Date.now() - latestStreamTs) <= SENSOR_STREAM_STALE_MS;
+
+        const hr = Number(sensor?.heart_rate ?? latestChildStream?.heart_rate);
+        const hrv = Number(sensor?.hrv_rmssd ?? latestChildStream?.hrv_rmssd);
+        const motion = Number(sensor?.motion_level ?? latestChildStream?.motion_level);
+        const sensorOnline = sensor?.device_status === "online";
+        const online = sensorOnline || streamIsFresh;
 
         const safeHr = Number.isFinite(hr) ? hr : null;
         const safeHrv = Number.isFinite(hrv) ? hrv : null;
@@ -130,7 +161,13 @@ export const HobbySession = () => {
         setSensorReady(ready);
 
         if (!online) {
-          setSensorHint("No sensor reading detected. Please attach the sensor.");
+          const hasOtherChildData = Array.isArray(stream)
+            && stream.some((row: any) => resolveChildId(row?.child_id) !== selectedChild.id);
+          if (hasOtherChildData) {
+            setSensorHint("Sensor stream detected for another child profile. Select the correct child or reconnect this child device.");
+          } else {
+            setSensorHint(`No sensor reading detected for device ${selectedChild.device_id}. Start bridge with this same device id and attach sensor.`);
+          }
         } else if (!hasValidPhysiology) {
           setSensorHint("Place finger on sensor and wait for stable readings.");
         } else {

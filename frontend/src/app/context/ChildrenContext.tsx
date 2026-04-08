@@ -8,6 +8,7 @@ export interface Child {
   age: number;
   grade: string;
   device_id: string;
+  sensor_last_seen_at?: string | null;
   hr_baseline: number;
   rmssd_baseline: number;
   isCalibrated: boolean;
@@ -36,6 +37,7 @@ function normalizeChild(raw: any): Child {
     age: Number(raw?.age ?? 10),
     grade: String(raw?.grade ?? "N/A"),
     device_id: String(raw?.device_id ?? "MP-000"),
+    sensor_last_seen_at: raw?.sensor_last_seen_at ? String(raw.sensor_last_seen_at) : null,
     hr_baseline: hrBaseline,
     rmssd_baseline: rmssdBaseline,
     isCalibrated: Boolean(raw?.isCalibrated ?? (hrBaseline > 0 && rmssdBaseline > 0)),
@@ -64,13 +66,25 @@ export const ChildrenProvider = ({ children }: { children: ReactNode }) => {
     const loadChildren = async () => {
       try {
         const rows = await api.getChildren();
-        const normalized = rows.map(normalizeChild);
+        const normalized: Child[] = rows.map(normalizeChild);
         setChildrenList(normalized);
         localStorage.setItem("mindpulse_children", JSON.stringify(normalized));
         setSelectedChild((prev) => {
           if (!normalized.length) {
             return null;
           }
+
+          const now = Date.now();
+          const onlineLikeChild = normalized.find((c) => {
+            if (!c.sensor_last_seen_at) return false;
+            const lastSeen = new Date(c.sensor_last_seen_at).getTime();
+            return Number.isFinite(lastSeen) && now - lastSeen <= 30_000;
+          });
+
+          if (onlineLikeChild) {
+            return onlineLikeChild;
+          }
+
           const existing = prev ? normalized.find((c) => c.id === prev.id) : null;
           return existing || normalized[0];
         });
@@ -98,44 +112,22 @@ export const ChildrenProvider = ({ children }: { children: ReactNode }) => {
       isCalibrated: false,
     };
 
-    try {
-      const raw = await api.createChild(payload);
-      const newChild = normalizeChild(raw);
-      const updated = [...childrenList, newChild];
-      setChildrenList(updated);
-      setSelectedChild((prev) => prev || newChild);
-      localStorage.setItem("mindpulse_children", JSON.stringify(updated));
-    } catch {
-      const newChild: Child = {
-        ...child,
-        id: `C${Math.random().toString(36).slice(2, 9)}`,
-        isCalibrated: false,
-      };
-      const updated = [...childrenList, newChild];
-      setChildrenList(updated);
-      setSelectedChild((prev) => prev || newChild);
-      localStorage.setItem("mindpulse_children", JSON.stringify(updated));
-    }
+    const raw = await api.createChild(payload);
+    const newChild = normalizeChild(raw);
+    const updated = [...childrenList, newChild];
+    setChildrenList(updated);
+    setSelectedChild((prev) => prev || newChild);
+    localStorage.setItem("mindpulse_children", JSON.stringify(updated));
   };
 
   const updateChild = async (id: string, updates: Partial<Child>) => {
-    try {
-      const raw = await api.updateChild(id, updates);
-      const next = normalizeChild(raw);
-      const updated = childrenList.map((child) => (child.id === id ? next : child));
-      setChildrenList(updated);
-      localStorage.setItem("mindpulse_children", JSON.stringify(updated));
-      if (selectedChild?.id === id) {
-        setSelectedChild(next);
-      }
-      return;
-    } catch {
-      const updated = childrenList.map((child) => (child.id === id ? { ...child, ...updates } : child));
-      setChildrenList(updated);
-      localStorage.setItem("mindpulse_children", JSON.stringify(updated));
-      if (selectedChild?.id === id) {
-        setSelectedChild({ ...selectedChild, ...updates });
-      }
+    const raw = await api.updateChild(id, updates);
+    const next = normalizeChild(raw);
+    const updated = childrenList.map((child) => (child.id === id ? next : child));
+    setChildrenList(updated);
+    localStorage.setItem("mindpulse_children", JSON.stringify(updated));
+    if (selectedChild?.id === id) {
+      setSelectedChild(next);
     }
   };
 

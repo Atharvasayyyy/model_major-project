@@ -9,6 +9,13 @@ const apiClient = axios.create({
   },
 });
 
+let hasRedirectedForAuth = false;
+
+function clearAuthCache() {
+  localStorage.removeItem("mindpulse_user");
+  localStorage.removeItem("mindpulse_token");
+}
+
 apiClient.interceptors.request.use((config) => {
   const token = localStorage.getItem("mindpulse_token");
   if (token) {
@@ -16,6 +23,26 @@ apiClient.interceptors.request.use((config) => {
   }
   return config;
 });
+
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const status = error?.response?.status;
+    const requestUrl = String(error?.config?.url || "");
+    const isAuthRoute = requestUrl.includes("/auth/login") || requestUrl.includes("/auth/register");
+
+    if (status === 401 && !isAuthRoute) {
+      clearAuthCache();
+
+      if (!hasRedirectedForAuth && typeof window !== "undefined") {
+        hasRedirectedForAuth = true;
+        window.location.replace("/auth/login");
+      }
+    }
+
+    return Promise.reject(error);
+  },
+);
 
 function mapUser(raw) {
   return {
@@ -64,6 +91,7 @@ export async function registerUser(payload) {
 
 export async function loginUser(payload) {
   const { data } = await apiClient.post("/auth/login", payload);
+  hasRedirectedForAuth = false;
   return {
     token: data?.token || null,
     user: mapUser(data?.user || data),
@@ -165,14 +193,14 @@ export async function getRealtimeAnalytics(childId) {
     {
       ...latestSensor,
       ...latestEngagement,
-      child_id: latestSensor?.child_id || latestEngagement?.child_id || childId,
-      activity: latestSensor?.activity || latestEngagement?.activity,
-      heart_rate: latestSensor?.heart_rate || latestEngagement?.heart_rate,
-      hrv_rmssd: latestSensor?.hrv_rmssd || latestEngagement?.hrv_rmssd,
-      motion_level: latestSensor?.motion_level || latestEngagement?.motion_level,
-      spo2: latestSensor?.spo2 || latestEngagement?.spo2,
-      restlessness_index: latestSensor?.restlessness_index || latestEngagement?.restlessness_index,
-      timestamp: latestEngagement?.timestamp || latestSensor?.timestamp,
+      child_id: latestSensor?.child_id ?? latestEngagement?.child_id ?? childId,
+      activity: latestSensor?.activity ?? latestEngagement?.activity,
+      heart_rate: latestSensor?.heart_rate ?? latestEngagement?.heart_rate,
+      hrv_rmssd: latestSensor?.hrv_rmssd ?? latestEngagement?.hrv_rmssd,
+      motion_level: latestSensor?.motion_level ?? latestEngagement?.motion_level,
+      spo2: latestSensor?.spo2 ?? latestEngagement?.spo2,
+      restlessness_index: latestSensor?.restlessness_index ?? latestEngagement?.restlessness_index,
+      timestamp: latestEngagement?.timestamp ?? latestSensor?.timestamp,
     },
     childId,
   );

@@ -3,15 +3,21 @@ const Child = require("../models/Child");
 async function createChild(req, res) {
   try {
     const { child_name, age, grade, device_id } = req.body;
+    const normalizedDeviceId = String(device_id || "").trim();
     if (!child_name || age === undefined || !grade || !device_id) {
       return res.status(400).json({ message: "child_name, age, grade and device_id are required" });
+    }
+
+    const existingByDeviceId = await Child.findOne({ device_id: normalizedDeviceId }).select("_id");
+    if (existingByDeviceId) {
+      return res.status(409).json({ message: "device_id is already assigned to another child. Use a unique device_id." });
     }
 
     const child = await Child.create({
       child_name,
       age,
       grade,
-      device_id,
+      device_id: normalizedDeviceId,
       parent_id: req.user._id,
       hr_baseline: null,
       rmssd_baseline: null,
@@ -51,6 +57,22 @@ async function updateChild(req, res) {
     const updates = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) updates[key] = req.body[key];
+    }
+
+    if (updates.device_id !== undefined) {
+      updates.device_id = String(updates.device_id || "").trim();
+      if (!updates.device_id) {
+        return res.status(400).json({ message: "device_id cannot be empty" });
+      }
+
+      const existingByDeviceId = await Child.findOne({
+        device_id: updates.device_id,
+        _id: { $ne: req.params.id },
+      }).select("_id");
+
+      if (existingByDeviceId) {
+        return res.status(409).json({ message: "device_id is already assigned to another child. Use a unique device_id." });
+      }
     }
 
     const child = await Child.findOneAndUpdate(

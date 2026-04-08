@@ -16,14 +16,38 @@
     ]
   },
   "variable": [
-    { "key": "baseUrl", "value": "http://localhost:5000" },
-    { "key": "token", "value": "" },
-    { "key": "childId", "value": "" },
-    { "key": "loginEmail", "value": "test@example.com" },
-    { "key": "loginPassword", "value": "test12345" },
-    { "key": "registerName", "value": "Postman User" },
-    { "key": "registerEmail", "value": "" },
-    { "key": "autoGenerateRegisterEmail", "value": "true" }
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "childId",
+      "value": ""
+    },
+    {
+      "key": "loginEmail",
+      "value": "test@example.com"
+    },
+    {
+      "key": "loginPassword",
+      "value": "test12345"
+    },
+    {
+      "key": "registerName",
+      "value": "Postman User"
+    },
+    {
+      "key": "registerEmail",
+      "value": ""
+    },
+    {
+      "key": "autoGenerateRegisterEmail",
+      "value": "true"
+    }
   ],
   "item": [
     {
@@ -32,13 +56,19 @@
         {
           "name": "GET Health",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "GET",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/health",
-              "host": ["{{baseUrl}}"],
-              "path": ["health"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
             }
           },
           "event": [
@@ -63,10 +93,15 @@
         {
           "name": "POST Register",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -74,8 +109,14 @@
             },
             "url": {
               "raw": "{{baseUrl}}/api/auth/register",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "auth", "register"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "register"
+              ]
             }
           },
           "event": [
@@ -84,11 +125,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "const auto = (pm.collectionVariables.get('autoGenerateRegisterEmail') || 'true').toLowerCase() === 'true';",
+                  "const auto = (pm.environment.get('autoGenerateRegisterEmail') || 'true').toLowerCase() === 'true';",
                   "if (auto) {",
                   "  const email = `postman_${Date.now()}@example.com`;",
-                  "  pm.collectionVariables.set('registerEmail', email);",
-                  "  pm.collectionVariables.set('loginEmail', email);",
+                  "  pm.environment.set('registerEmail', email);",
+                  "  pm.environment.set('loginEmail', email);",
                   "}"
                 ]
               }
@@ -103,7 +144,7 @@
                   "});",
                   "const json = pm.response.json();",
                   "if (pm.response.code === 201 && json.token) {",
-                  "  pm.collectionVariables.set('token', json.token);",
+                  "  pm.environment.set('token', json.token);",
                   "}"
                 ]
               }
@@ -113,10 +154,15 @@
         {
           "name": "POST Login",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -124,8 +170,14 @@
             },
             "url": {
               "raw": "{{baseUrl}}/api/auth/login",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "auth", "login"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
             }
           },
           "event": [
@@ -138,7 +190,7 @@
                   "  pm.response.to.have.status(200);",
                   "});",
                   "const json = pm.response.json();",
-                  "if (json.token) pm.collectionVariables.set('token', json.token);"
+                  "if (json.token) pm.environment.set('token', json.token);"
                 ]
               }
             }
@@ -154,7 +206,10 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -162,8 +217,13 @@
             },
             "url": {
               "raw": "{{baseUrl}}/api/children",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "children"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "children"
+              ]
             }
           },
           "event": [
@@ -177,7 +237,7 @@
                   "});",
                   "const json = pm.response.json();",
                   "const id = json._id || json.id;",
-                  "if (id) pm.collectionVariables.set('childId', id);"
+                  "if (id) pm.environment.set('childId', id);"
                 ]
               }
             }
@@ -190,8 +250,13 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/children",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "children"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "children"
+              ]
             }
           },
           "event": [
@@ -205,7 +270,7 @@
                   "});",
                   "const arr = pm.response.json();",
                   "if (Array.isArray(arr) && arr.length > 0) {",
-                  "  pm.collectionVariables.set('childId', arr[0]._id || arr[0].id);",
+                  "  pm.environment.set('childId', arr[0]._id || arr[0].id);",
                   "}"
                 ]
               }
@@ -219,8 +284,14 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/children/{{childId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "children", "{{childId}}"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "children",
+                "{{childId}}"
+              ]
             }
           }
         },
@@ -229,7 +300,10 @@
           "request": {
             "method": "PUT",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -237,20 +311,14 @@
             },
             "url": {
               "raw": "{{baseUrl}}/api/children/{{childId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "children", "{{childId}}"]
-            }
-          }
-        },
-        {
-          "name": "DELETE Child",
-          "request": {
-            "method": "DELETE",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/children/{{childId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "children", "{{childId}}"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "children",
+                "{{childId}}"
+              ]
             }
           }
         }
@@ -266,8 +334,15 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/baseline/status/{{childId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "baseline", "status", "{{childId}}"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "baseline",
+                "status",
+                "{{childId}}"
+              ]
             }
           }
         },
@@ -276,7 +351,10 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -284,8 +362,14 @@
             },
             "url": {
               "raw": "{{baseUrl}}/api/baseline/start",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "baseline", "start"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "baseline",
+                "start"
+              ]
             }
           }
         },
@@ -294,7 +378,10 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -302,8 +389,14 @@
             },
             "url": {
               "raw": "{{baseUrl}}/api/baseline/record",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "baseline", "record"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "baseline",
+                "record"
+              ]
             }
           }
         },
@@ -312,7 +405,10 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -320,8 +416,14 @@
             },
             "url": {
               "raw": "{{baseUrl}}/api/baseline/finish",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "baseline", "finish"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "baseline",
+                "finish"
+              ]
             }
           }
         }
@@ -335,7 +437,10 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -343,8 +448,13 @@
             },
             "url": {
               "raw": "{{baseUrl}}/api/sensor-data",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "sensor-data"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sensor-data"
+              ]
             }
           }
         }
@@ -360,8 +470,15 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/analytics/realtime/{{childId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "analytics", "realtime", "{{childId}}"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "analytics",
+                "realtime",
+                "{{childId}}"
+              ]
             }
           }
         },
@@ -372,8 +489,15 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/analytics/engagement-trend/{{childId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "analytics", "engagement-trend", "{{childId}}"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "analytics",
+                "engagement-trend",
+                "{{childId}}"
+              ]
             }
           }
         },
@@ -384,8 +508,15 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/analytics/activity-insights/{{childId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "analytics", "activity-insights", "{{childId}}"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "analytics",
+                "activity-insights",
+                "{{childId}}"
+              ]
             }
           }
         },
@@ -396,8 +527,15 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/analytics/daily-summary/{{childId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "analytics", "daily-summary", "{{childId}}"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "analytics",
+                "daily-summary",
+                "{{childId}}"
+              ]
             }
           }
         },
@@ -408,8 +546,15 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/analytics/alerts/{{childId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "analytics", "alerts", "{{childId}}"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "analytics",
+                "alerts",
+                "{{childId}}"
+              ]
             }
           }
         }
@@ -425,8 +570,37 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/alerts/{{childId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "alerts", "{{childId}}"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "alerts",
+                "{{childId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Cleanup",
+      "item": [
+        {
+          "name": "DELETE Child (Cleanup)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/children/{{childId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "children",
+                "{{childId}}"
+              ]
             }
           }
         }

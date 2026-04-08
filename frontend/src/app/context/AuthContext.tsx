@@ -42,6 +42,11 @@ const getAuthErrorMessage = (error: unknown, fallback: string) => {
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(() => {
     const savedUser = localStorage.getItem("mindpulse_user");
+    const savedToken = localStorage.getItem("mindpulse_token");
+    if (savedUser && !savedToken) {
+      localStorage.removeItem("mindpulse_user");
+      return null;
+    }
     if (savedUser) {
       return JSON.parse(savedUser);
     }
@@ -58,12 +63,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const login = async (email: string, password: string) => {
     try {
       const { user: loggedInUser, token: authToken } = await api.loginUser({ email, password });
+      if (!authToken) {
+        throw new Error("Login failed: token not received from backend");
+      }
       setUser(loggedInUser);
       setToken(authToken);
       localStorage.setItem("mindpulse_user", JSON.stringify(loggedInUser));
-      if (authToken) {
-        localStorage.setItem("mindpulse_token", authToken);
-      }
+      localStorage.setItem("mindpulse_token", authToken);
     } catch (error) {
       throw new Error(getAuthErrorMessage(error, "Login failed"));
     }
@@ -92,7 +98,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         login,
         register,
         logout,
-        isAuthenticated: !!user,
+        isAuthenticated: !!user && !!token,
       }}
     >
       {children}
