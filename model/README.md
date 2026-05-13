@@ -125,23 +125,30 @@ python -m src.mindpulse.prepare_wesad --download --output data/wesad_mindpulse_t
 
 Current runtime architecture used in this repository:
 
-ESP32 -> Python serial bridge -> Node `/api/sensor-data` -> MongoDB -> analytics API -> React dashboard
+**ESP32 -> Python serial bridge -> Node `/api/sensor-data` -> MongoDB -> analytics API -> React dashboard**
+
+### File Structure & Key Components:
+- **`backend/`**: Node.js/Express server providing the core API and data storage.
+  - `server.js`: Main entry point for the backend API.
+  - `src/controllers/sensorDataController.js`: Handles incoming data, automatically routing it to the most recent child profile.
+- **`frontend/`**: React application dashboard for visualizing real-time metrics.
+- **`serial_sensor_bridge.py`**: Python script that reads from the ESP32 via COM port and POSTs to the backend.
+
+### Setup & Usage Workflow:
+1. **Start the Backend:** Run `node server.js` (or `npm run dev`) inside the `backend/` directory on port 5001.
+2. **Start the Frontend:** Run `npm run dev` inside the `frontend/` directory.
+3. **Create a Child Profile:** Using the frontend dashboard, log in and add a new Child. **IMPORTANT:** The sensor routing is device-agnostic, meaning the backend will automatically assign incoming sensor data to the most recently active or created child. **No device ID is needed.**
+4. **Start the Sensor Bridge:** Connect the ESP32 and run:
+   ```bash
+   python -u serial_sensor_bridge.py
+   ```
+   *(Note: The bridge will auto-detect the COM port and no longer requires a `--device-id` argument)*
 
 Model equations are applied in Node backend service layer (`calculateEngagement`) with baseline-normalized metrics.
 
 Inference pipeline:
 
-sensor reading
-
--> validation
-
--> baseline normalization
-
--> arousal calculation
-
--> valence calculation
-
--> engagement score
+sensor reading -> validation -> baseline normalization -> arousal calculation -> valence calculation -> engagement score
 
 The Python model service can still be used as a separate inference endpoint or for retraining/export workflows.
 

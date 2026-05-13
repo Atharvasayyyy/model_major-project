@@ -3,6 +3,7 @@ import { useChildren, Child } from "../context/ChildrenContext";
 import { Plus, Edit, Trash2, User } from "lucide-react";
 import { ChildDialog } from "../components/ChildDialog";
 import { CalibrationDialog } from "../components/CalibrationDialog";
+import { api } from "../services/api";
 
 export const Children = () => {
   const { children, deleteChild, selectedChild, setSelectedChild } = useChildren();
@@ -22,9 +23,18 @@ export const Children = () => {
     }
   };
 
-  const handleCalibrate = (child: Child) => {
-    setCalibratingChild(child);
-    setCalibrationOpen(true);
+  const handleCalibrate = async (child: Child) => {
+    try {
+      const status = await api.getSensorStatus(child.id);
+      if (status?.device_status !== "online") {
+        alert("Sensor is not attached or offline. Please add the sensor before starting Baseline Calibration.");
+        return;
+      }
+      setCalibratingChild(child);
+      setCalibrationOpen(true);
+    } catch (err) {
+      alert("Failed to check sensor status. Make sure the sensor is attached.");
+    }
   };
 
   const handleAddNew = () => {
@@ -88,10 +98,7 @@ export const Children = () => {
               </div>
 
               <div className="space-y-2 mb-4">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Device ID:</span>
-                  <span className="font-mono font-semibold">{child.device_id}</span>
-                </div>
+
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">HR Baseline:</span>
                   <span>{child.hr_baseline} bpm</span>

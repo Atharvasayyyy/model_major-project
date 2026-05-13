@@ -3,6 +3,7 @@ const { getSensorStatus } = require("../controllers/sensorDataController");
 
 const router = express.Router();
 
+router.get("/", getSensorStatus);
 router.get("/:child_id", getSensorStatus);
 
 module.exports = router;

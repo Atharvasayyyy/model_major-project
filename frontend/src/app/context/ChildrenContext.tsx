@@ -7,7 +7,6 @@ export interface Child {
   child_name: string;
   age: number;
   grade: string;
-  device_id: string;
   sensor_last_seen_at?: string | null;
   hr_baseline: number;
   rmssd_baseline: number;
@@ -36,7 +35,6 @@ function normalizeChild(raw: any): Child {
     child_name: String(raw?.child_name ?? "Unknown"),
     age: Number(raw?.age ?? 10),
     grade: String(raw?.grade ?? "N/A"),
-    device_id: String(raw?.device_id ?? "MP-000"),
     sensor_last_seen_at: raw?.sensor_last_seen_at ? String(raw.sensor_last_seen_at) : null,
     hr_baseline: hrBaseline,
     rmssd_baseline: rmssdBaseline,
@@ -106,7 +104,6 @@ export const ChildrenProvider = ({ children }: { children: ReactNode }) => {
       child_name: child.child_name,
       age: child.age,
       grade: child.grade,
-      device_id: child.device_id,
       hr_baseline: child.hr_baseline,
       rmssd_baseline: child.rmssd_baseline,
       isCalibrated: false,

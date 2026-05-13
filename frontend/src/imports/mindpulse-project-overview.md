@@ -108,7 +108,7 @@ When a new device is connected, the system must show a calibration screen.
 
 UI Instruction:
 
-"Please sit calmly and relax for 5 minutes while the device records baseline data."
+"Please sit calmly and relax for 1 minute while the device records baseline data."
 
 During calibration the backend collects:
 

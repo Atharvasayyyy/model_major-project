@@ -4,7 +4,7 @@ import { Activity, Clock3, Heart, Loader2, ShieldCheck } from "lucide-react";
 import { useChildren } from "../context/ChildrenContext";
 import { api } from "../services/api";
 
-const BASELINE_DURATION_SECONDS = 5 * 60;
+const BASELINE_DURATION_SECONDS = 1 * 60;
 const SENSOR_STREAM_STALE_MS = 30_000;
 
 function formatTime(totalSeconds: number): string {
@@ -273,7 +273,7 @@ export const BaselineCalibration = () => {
         <div>
           <h1 className="text-3xl font-bold">Baseline Calibration</h1>
           <p className="mt-2 text-muted-foreground">
-            To establish your physiological baseline, please remain calm and sit still for the next 5 minutes.
+            To establish your physiological baseline, please remain calm and sit still for the next 1 minute.
             Do not move your hand or talk during this process.
           </p>
           {!baselineInProgress && !isComplete && (

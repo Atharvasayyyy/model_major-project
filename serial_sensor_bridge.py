@@ -2,13 +2,19 @@
 
 Reads JSON lines from ESP32 over serial and forwards transformed payloads
 to the Node.js backend /api/sensor-data endpoint.
+
+ESP32 sends camelCase JSON like:
+  {"sessionId":"S001","timestamp":4296721,"heartRate":0,"hrvRmssd":1458476,
+   "spo2":0,"motionLevel":10.05396,"restlessnessIndex":0.020502}
+
+The bridge converts this to snake_case and applies gravity-removal to motionLevel:
+  motion_level = abs(motionLevel - 9.8)
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 import sys
 import time
 from typing import Any
@@ -17,11 +23,16 @@ import requests
 import serial
 from serial.tools import list_ports
 
-DEFAULT_API_URL = "http://localhost:5000/api/sensor-data"
+DEFAULT_API_URL = "http://localhost:5001/api/sensor-data"
 DEFAULT_BAUDRATE = 115200
 DEFAULT_PORT = "auto"
+# Common USB-to-serial chip descriptions for auto-detection
 AUTO_PORT_KEYWORDS = ("cp210", "ch340", "usb", "uart", "silicon labs")
-BRIDGE_CONFIG_PATH = Path(__file__).with_name(".sensor_bridge_config.json")
+
+# Sensor validity thresholds — readings outside these ranges are skipped
+HEART_RATE_MIN = 40
+HEART_RATE_MAX = 200
+HRV_RMSSD_MAX = 500   # ms; above this indicates no finger on sensor
 
 
 def normalize_api_url(api_url: str) -> str:
@@ -33,55 +44,23 @@ def normalize_api_url(api_url: str) -> str:
     return f"{normalized}/api/sensor-data"
 
 
+def get_health_url(api_url: str) -> str:
+    normalized = api_url.rstrip("/")
+    if normalized.endswith("/api/sensor-data"):
+        return normalized.replace("/api/sensor-data", "/health")
+    if normalized.endswith("/api"):
+        return normalized.replace("/api", "/health")
+    return f"{normalized}/health"
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Forward ESP32 serial JSON to MindPulse backend")
     parser.add_argument("--child-id", help="Optional child_id override in backend")
-    parser.add_argument("--device-id", help="Device ID registered in child profile")
     parser.add_argument("--port", default=DEFAULT_PORT, help="Serial port (default: auto, e.g. COM21)")
     parser.add_argument("--baud", type=int, default=DEFAULT_BAUDRATE, help=f"Baud rate (default: {DEFAULT_BAUDRATE})")
     parser.add_argument("--api-url", default=DEFAULT_API_URL, help=f"Backend endpoint (default: {DEFAULT_API_URL})")
     parser.add_argument("--timeout", type=float, default=1.0, help="Serial read timeout in seconds")
-    parser.add_argument("--forget-device-id", action="store_true", help="Clear remembered device id and exit")
     return parser.parse_args()
-
-
-def load_bridge_config() -> dict[str, Any]:
-    if not BRIDGE_CONFIG_PATH.exists():
-        return {}
-
-    try:
-        return json.loads(BRIDGE_CONFIG_PATH.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return {}
-
-
-def save_bridge_config(config: dict[str, Any]) -> None:
-    BRIDGE_CONFIG_PATH.write_text(json.dumps(config, indent=2), encoding="utf-8")
-
-
-def resolve_device_id(args: argparse.Namespace) -> str | None:
-    config = load_bridge_config()
-
-    if args.forget_device_id:
-        if BRIDGE_CONFIG_PATH.exists():
-            BRIDGE_CONFIG_PATH.unlink()
-        print("Cleared remembered device_id.")
-        return None
-
-    cli_device_id = (args.device_id or "").strip()
-    if cli_device_id:
-        if config.get("device_id") != cli_device_id:
-            config["device_id"] = cli_device_id
-            save_bridge_config(config)
-            print(f"Remembered device_id: {cli_device_id}")
-        return cli_device_id
-
-    remembered = str(config.get("device_id") or "").strip()
-    if remembered:
-        print(f"Using remembered device_id: {remembered}")
-        return remembered
-
-    return None
 
 
 def resolve_port(requested_port: str) -> str | None:
@@ -104,32 +83,66 @@ def is_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-def transform_payload(raw: dict[str, Any], device_id: str, child_id: str | None = None) -> dict[str, Any] | None:
-    heart_rate = raw.get("heartRate")
-    hrv_rmssd = raw.get("hrvRmssd")
-    motion_level = raw.get("motionLevel")
-    spo2 = raw.get("spo2")
-    restlessness_index = raw.get("restlessnessIndex")
+def is_valid_sensor_reading(heart_rate: Any, hrv_rmssd: Any) -> tuple[bool, str]:
+    """
+    Returns (is_valid, reason_string).
+    heartRate=0 means no finger is on the MAX30100.
+    hrvRmssd > 500 ms is physiologically impossible and also indicates no finger.
+    """
+    if not is_number(heart_rate) or heart_rate == 0:
+        return False, f"heartRate={heart_rate} (no finger detected on MAX30100)"
+    if not is_number(hrv_rmssd) or hrv_rmssd <= 0 or hrv_rmssd > HRV_RMSSD_MAX:
+        return False, f"hrvRmssd={hrv_rmssd} (out of plausible range 0-{HRV_RMSSD_MAX} ms)"
+    if heart_rate < HEART_RATE_MIN or heart_rate > HEART_RATE_MAX:
+        return False, f"heartRate={heart_rate} (out of valid range {HEART_RATE_MIN}-{HEART_RATE_MAX} bpm)"
+    return True, ""
 
-    if not all(is_number(v) for v in (heart_rate, hrv_rmssd, motion_level)):
+
+def transform_payload(raw: dict[str, Any], child_id: str | None = None) -> dict[str, Any] | None:
+    """
+    Read actual ESP32 camelCase fields and convert to snake_case for the backend.
+
+    ESP32 sends:
+      heartRate, hrvRmssd, motionLevel, spo2, sessionId, timestamp, restlessnessIndex
+
+    motionLevel is ALREADY sqrt(ax²+ay²+az²) computed on the ESP32.
+    We apply gravity-removal here: motion_level = abs(motionLevel - 9.8)
+    """
+    heart_rate    = raw.get("heartRate")
+    hrv_rmssd     = raw.get("hrvRmssd")
+    motion_level_raw = raw.get("motionLevel")
+    spo2          = raw.get("spo2")
+    restlessness  = raw.get("restlessnessIndex")
+    session_id    = raw.get("sessionId")
+    timestamp     = raw.get("timestamp")
+
+    # All three core fields must be present and numeric
+    if not all(is_number(v) for v in (heart_rate, hrv_rmssd, motion_level_raw)):
         return None
 
-    transformed = {
-        "device_id": device_id,
-        "heart_rate": int(round(float(heart_rate))),
-        "hrv_rmssd": int(round(float(hrv_rmssd))),
-        # Forward raw motion magnitude; backend middleware performs normalization.
-        "motionLevel": round(float(motion_level), 3),
+    # Gravity-removal: ESP32 motionLevel includes ~9.8 m/s² from gravity at rest
+    motion_level = round(abs(float(motion_level_raw) - 9.8), 3)
+
+    transformed: dict[str, Any] = {
+        "heart_rate":  int(round(float(heart_rate))),
+        "hrv_rmssd":   int(round(float(hrv_rmssd))),
+        "motion_level": motion_level,
     }
 
     if child_id:
         transformed["child_id"] = child_id
-
+    if session_id is not None:
+        transformed["session_id"] = str(session_id)
+    if timestamp is not None and is_number(timestamp):
+        transformed["timestamp"] = int(timestamp)
     if is_number(spo2):
-        transformed["spo2"] = int(round(float(spo2)))
-
-    if is_number(restlessness_index):
-        transformed["restlessness_index"] = round(float(restlessness_index), 3)
+        clamped_spo2 = int(round(float(spo2)))
+        if 0 <= clamped_spo2 <= 100:
+            transformed["spo2"] = clamped_spo2
+        else:
+            print(f"[BRIDGE WARNING] spo2={clamped_spo2} is out of range (0–100) — omitting from payload")
+    if is_number(restlessness):
+        transformed["restlessness_index"] = round(float(restlessness), 6)
 
     return transformed
 
@@ -144,12 +157,9 @@ def try_parse_serial_json(line: str, frame_buffer: str) -> tuple[dict[str, Any] 
     if not stripped:
         return None, frame_buffer
 
-    if frame_buffer:
-        candidate = f"{frame_buffer}\n{stripped}"
-    else:
-        candidate = stripped
+    candidate = f"{frame_buffer}\n{stripped}" if frame_buffer else stripped
 
-    open_braces = candidate.count("{")
+    open_braces  = candidate.count("{")
     close_braces = candidate.count("}")
 
     if open_braces == 0:
@@ -167,34 +177,43 @@ def try_parse_serial_json(line: str, frame_buffer: str) -> tuple[dict[str, Any] 
 
 def main() -> int:
     args = parse_args()
-    device_id = resolve_device_id(args)
-    if args.forget_device_id:
-        return 0
 
-    if not device_id:
-        print("[ERROR] device_id is required the first time.")
-        print("Run once with: --device-id <your_child_device_id>")
-        return 1
+    api_url    = normalize_api_url(args.api_url)
+    health_url = get_health_url(args.api_url)
 
-    api_url = normalize_api_url(args.api_url)
+    # ── Backend connectivity check ─────────────────────────────────────────
+    print(f"[BRIDGE] Checking backend connectivity at {health_url} ...")
+    try:
+        health_resp = requests.get(health_url, timeout=5)
+        if health_resp.status_code == 200:
+            print("[BRIDGE] Backend is online and reachable.")
+        else:
+            print(f"[BRIDGE WARN] Backend returned non-200 status: {health_resp.status_code}")
+    except requests.RequestException as exc:
+        print(f"[BRIDGE ERROR] Could not connect to backend at {health_url}: {exc}")
+        print("[BRIDGE] Please ensure your Node.js backend is running on port 5001.")
+        print("[BRIDGE] Starting serial read loop anyway — will retry each packet...")
 
     if args.port.lower() == "auto":
-        print("Listening to ESP32 serial on auto-detected port...")
+        print("[BRIDGE] Listening on auto-detected serial port...")
     else:
-        print(f"Listening to ESP32 serial on {args.port} @ {args.baud}...")
-    print(f"Forwarding to backend: {api_url}")
+        print(f"[BRIDGE] Listening on {args.port} @ {args.baud} baud")
+    print(f"[BRIDGE] Forwarding sensor data to: {api_url}")
+    print("[BRIDGE] Place finger firmly on MAX30100 sensor to get valid readings.")
+    print("-" * 60)
 
+    # ── Main serial loop ───────────────────────────────────────────────────
     while True:
         ser: serial.Serial | None = None
         try:
             resolved_port = resolve_port(args.port)
             if not resolved_port:
-                print("[WARN] No serial device detected. Waiting for sensor attachment...")
+                print("[BRIDGE WARN] No serial device detected. Is the ESP32 plugged in? Retrying in 2s...")
                 time.sleep(2)
                 continue
 
             ser = open_serial(resolved_port, args.baud, args.timeout)
-            print(f"Serial connected on {resolved_port}.")
+            print(f"[BRIDGE] Serial connected on {resolved_port} @ {args.baud} baud.")
             frame_buffer = ""
 
             while True:
@@ -202,33 +221,58 @@ def main() -> int:
                 if not line:
                     continue
 
-                print(f"Raw Serial Line: {line}")
+                print(f"[SERIAL] {line}")
 
                 raw, frame_buffer = try_parse_serial_json(line, frame_buffer)
                 if raw is None:
                     continue
 
-                payload = transform_payload(raw, device_id, args.child_id)
-                if payload is None:
-                    print("[WARN] Missing required fields (heartRate/hrvRmssd/motionLevel)")
+                # ── Sensor validity diagnostic ─────────────────────────────
+                heart_rate = raw.get("heartRate")
+                hrv_rmssd  = raw.get("hrvRmssd")
+                valid, reason = is_valid_sensor_reading(heart_rate, hrv_rmssd)
+                if not valid:
+                    print(f"[BRIDGE WARNING] Sensor reading invalid — {reason}")
+                    print("[BRIDGE WARNING] Place finger firmly on MAX30100. Skipping this packet.")
                     continue
 
-                print(f"Transformed Payload: {payload}")
+                # ── Build backend payload ──────────────────────────────────
+                payload = transform_payload(raw, args.child_id)
+                if payload is None:
+                    print("[BRIDGE WARN] Packet missing heartRate / hrvRmssd / motionLevel — skipping.")
+                    continue
 
-                try:
-                    response = requests.post(api_url, json=payload, timeout=10)
-                    print(f"Backend Response Code: {response.status_code}")
-                    if response.text:
-                        print(f"Response Body: {response.text}")
-                except requests.RequestException as exc:
-                    print(f"[ERROR] Failed to send payload: {exc}")
+                print(f"[BRIDGE] Sending payload: {json.dumps(payload)}")
+
+                # ── POST with retry ────────────────────────────────────────
+                for attempt in range(1, 4):
+                    try:
+                        response = requests.post(
+                            api_url,
+                            json=payload,
+                            headers={"Content-Type": "application/json"},
+                            timeout=10,
+                        )
+                        if response.status_code in (200, 201, 202):
+                            print(f"[BRIDGE] Backend accepted payload (HTTP {response.status_code})")
+                        else:
+                            print(f"[BRIDGE ERROR] Backend returned HTTP {response.status_code}")
+                        if response.text:
+                            print(f"[BRIDGE] Response: {response.text}")
+                        break
+                    except requests.RequestException as exc:
+                        print(f"[BRIDGE ERROR] POST failed (attempt {attempt}/3): {exc}")
+                        if attempt < 3:
+                            time.sleep(1)
 
         except serial.SerialException as exc:
-            print(f"[ERROR] Serial connection failed: {exc}")
-            print("Retrying in 2 seconds...")
+            print(f"[BRIDGE ERROR] Serial connection failed: {exc}")
+            if "access is denied" in str(exc).lower():
+                print("[BRIDGE ERROR] COM port is locked by another process (e.g. Arduino Serial Monitor). Close it and retry.")
+            print("[BRIDGE] Retrying in 2 seconds...")
             time.sleep(2)
         except KeyboardInterrupt:
-            print("\nBridge stopped by user.")
+            print("\n[BRIDGE] Stopped by user.")
             return 0
         finally:
             if ser is not None and ser.is_open:

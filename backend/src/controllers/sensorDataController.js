@@ -51,18 +51,15 @@ async function ingestSensorData(req, res) {
   try {
     const {
       child_id,
-      device_id,
       heart_rate,
       hrv_rmssd,
       motion_level,
       spo2,
       restlessness_index,
-      timestamp,
     } = req.body;
 
     if (req.sensorPayloadSource === "serial-bridge") {
       console.log("[SERIAL SENSOR DATA RECEIVED]");
-      if (device_id) console.log(`device_id: ${device_id}`);
       console.log(`heart_rate: ${heart_rate}`);
       console.log(`hrv_rmssd: ${hrv_rmssd}`);
       console.log(`motion_level: ${motion_level}`);
@@ -85,22 +82,19 @@ async function ingestSensorData(req, res) {
       child = await Child.findById(child_id);
     }
 
-    if (!child && device_id) {
-      // Single-device mode fallback: route reading by registered device ID.
-      child = await Child.findOne({ device_id }).sort({ createdAt: -1 });
+    if (!child) {
+      // Fallback: use the most recently created child profile if no child_id is provided
+      child = await Child.findOne().sort({ createdAt: -1 });
       resolvedChildId = child ? String(child._id) : null;
     }
 
     if (!child) {
-      if (device_id) {
-        console.warn(`[SENSOR ROUTING] No child matched device_id=${device_id}`);
-      }
-      return res.status(404).json({ message: "Child not found for provided child_id/device_id" });
+      return res.status(404).json({ message: "No child profiles exist to attach sensor data to" });
     }
 
     console.log(`[SENSOR ROUTING] Mapped to child_id=${resolvedChildId}`);
 
-    const eventTime = timestamp ? new Date(timestamp) : new Date();
+    const eventTime = new Date();
     const normalizedHeartRate = Number.isFinite(heart_rate) ? heart_rate : 0;
     const normalizedHrvRmssd = Number.isFinite(hrv_rmssd) ? hrv_rmssd : 0;
 
@@ -204,27 +198,24 @@ async function ingestSensorData(req, res) {
 
 async function getSensorStatus(req, res) {
   try {
-    const { child_id } = req.params;
-    const child = await Child.findOne({ _id: child_id, parent_id: req.user._id });
+    const child_id = req.params.child_id;
+    let child = null;
+    
+    if (child_id && child_id !== "undefined") {
+      child = await Child.findOne({ _id: child_id, parent_id: req.user._id });
+    } else {
+      child = await Child.findOne({ parent_id: req.user._id }).sort({ createdAt: -1 });
+    }
+
     if (!child) {
       return res.status(404).json({ message: "Child not found" });
     }
 
-    let latest = await SensorData.findOne({ child_id }).sort({ timestamp: -1 });
+    let latest = await SensorData.findOne({ child_id: child._id }).sort({ timestamp: -1 });
 
-    // Fallback for legacy/misaligned profiles: if this child has no rows yet,
-    // use latest reading from sibling profiles under the same parent with same device_id.
-    if (!latest && child.device_id) {
-      const siblingIds = (await Child.find({
-        parent_id: req.user._id,
-        device_id: child.device_id,
-      }).select("_id")).map((row) => row._id);
-
-      if (siblingIds.length > 0) {
-        latest = await SensorData.findOne({ child_id: { $in: siblingIds } }).sort({ timestamp: -1 });
-      }
-    }
     const lastSeen = child.sensor_last_seen_at ? new Date(child.sensor_last_seen_at) : null;
+    const baselineExists = Number.isFinite(child.hr_baseline) && child.hr_baseline > 0 &&
+                           Number.isFinite(child.rmssd_baseline) && child.rmssd_baseline > 0;
 
     // Mark device online when any recent sensor row has been received.
     const latestRowTime = latest ? new Date(latest.timestamp) : null;
@@ -234,7 +225,7 @@ async function getSensorStatus(req, res) {
 
     if (!latest) {
       return res.json({
-        child_id,
+        child_id: child._id,
         last_reading: null,
         last_reading_timestamp: null,
         last_sensor_ping_at: lastSeen ? lastSeen.toISOString() : null,
@@ -244,13 +235,14 @@ async function getSensorStatus(req, res) {
         spo2: null,
         restlessness_index: null,
         device_status,
+        baseline_exists: baselineExists,
       });
     }
 
     const lastReading = new Date(latest.timestamp);
 
     return res.json({
-      child_id,
+      child_id: child._id,
       last_reading: lastReading.toISOString(),
       last_reading_timestamp: lastReading.toISOString(),
       last_sensor_ping_at: lastSeen ? lastSeen.toISOString() : lastReading.toISOString(),
@@ -260,6 +252,7 @@ async function getSensorStatus(req, res) {
       spo2: latest.spo2 ?? null,
       restlessness_index: latest.restlessness_index ?? null,
       device_status,
+      baseline_exists: baselineExists,
     });
   } catch (error) {
     return res.status(500).json({ message: "Failed to fetch sensor status", error: error.message });

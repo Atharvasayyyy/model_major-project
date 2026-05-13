@@ -41,7 +41,7 @@ export const CalibrationDialog = ({ child, onClose }: CalibrationDialogProps) =>
     let elapsed = 0;
     const interval = setInterval(() => {
       elapsed += 1;
-      setProgress((prev) => Math.min(100, prev + 2));
+      setProgress((prev) => Math.min(100, prev + (100 / 60)));
 
       if (elapsed % 5 === 0) {
         void (async () => {
@@ -60,7 +60,7 @@ export const CalibrationDialog = ({ child, onClose }: CalibrationDialogProps) =>
         })();
       }
 
-      if (elapsed >= 50) {
+      if (elapsed >= 60) {
         clearInterval(interval);
         void (async () => {
           try {
@@ -117,7 +117,7 @@ export const CalibrationDialog = ({ child, onClose }: CalibrationDialogProps) =>
               </p>
               <p className="text-sm text-purple-200 mt-2">
                 Please ensure {child.child_name} is sitting calmly and relaxed. The device
-                will record baseline data for approximately 5 minutes.
+                will record baseline data for approximately 1 minute.
               </p>
             </div>
 

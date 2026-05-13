@@ -166,7 +166,7 @@ export const HobbySession = () => {
           if (hasOtherChildData) {
             setSensorHint("Sensor stream detected for another child profile. Select the correct child or reconnect this child device.");
           } else {
-            setSensorHint(`No sensor reading detected for device ${selectedChild.device_id}. Start bridge with this same device id and attach sensor.`);
+            setSensorHint("No sensor reading detected. Please attach the sensor and run the bridge.");
           }
         } else if (!hasValidPhysiology) {
           setSensorHint("Place finger on sensor and wait for stable readings.");

@@ -87,7 +87,7 @@ async function finishBaseline(req, res) {
     }
 
     const baselineSamples = await BaselineSample.find({ child_id }).sort({ timestamp: 1 });
-    const recommendedMinSamples = 200;
+    const recommendedMinSamples = 40;
 
     let source = "baseline-samples";
     let samples = baselineSamples;

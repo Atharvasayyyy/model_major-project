@@ -14,7 +14,6 @@ export const ChildDialog = ({ child, onClose }: ChildDialogProps) => {
     child_name: "",
     age: "",
     grade: "",
-    device_id: `esp32-${Date.now()}`,
     hr_baseline: "78",
     rmssd_baseline: "52",
   });
@@ -25,7 +24,6 @@ export const ChildDialog = ({ child, onClose }: ChildDialogProps) => {
         child_name: child.child_name,
         age: child.age.toString(),
         grade: child.grade,
-        device_id: child.device_id,
         hr_baseline: child.hr_baseline.toString(),
         rmssd_baseline: child.rmssd_baseline.toString(),
       });
@@ -40,7 +38,6 @@ export const ChildDialog = ({ child, onClose }: ChildDialogProps) => {
       child_name: formData.child_name,
       age: parseInt(formData.age),
       grade: formData.grade,
-      device_id: formData.device_id,
       hr_baseline: parseInt(formData.hr_baseline),
       rmssd_baseline: parseInt(formData.rmssd_baseline),
     };
@@ -53,7 +50,7 @@ export const ChildDialog = ({ child, onClose }: ChildDialogProps) => {
       }
       onClose();
     } catch (e: any) {
-      setSubmitError(e?.response?.data?.message || "Failed to save child profile. Please verify device id and try again.");
+      setSubmitError(e?.response?.data?.message || "Failed to save child profile. Please try again.");
     }
   };
 
@@ -116,20 +113,6 @@ export const ChildDialog = ({ child, onClose }: ChildDialogProps) => {
                 className="w-full bg-secondary text-foreground rounded-lg px-4 py-2 border border-border focus:border-purple-500 focus:outline-none"
               />
             </div>
-          </div>
-
-          <div>
-            <label className="block text-sm mb-2">Device ID</label>
-            <input
-              type="text"
-              value={formData.device_id}
-              onChange={(e) =>
-                setFormData({ ...formData, device_id: e.target.value })
-              }
-              required
-              placeholder="e.g., MP-001"
-              className="w-full bg-secondary text-foreground rounded-lg px-4 py-2 border border-border focus:border-purple-500 focus:outline-none"
-            />
           </div>
 
           <div className="grid grid-cols-2 gap-4">

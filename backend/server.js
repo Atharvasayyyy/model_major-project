@@ -22,6 +22,14 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  if (req.method === 'POST' && req.url === '/api/sensor-data') {
+    console.log(`Sensor Payload Body: ${JSON.stringify(req.body)}`);
+  }
+  next();
+});
+
 app.get("/health", (_req, res) => {
   res.status(200).json({ status: "ok" });
 });

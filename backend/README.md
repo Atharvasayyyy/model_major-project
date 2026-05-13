@@ -70,9 +70,9 @@ Registration only creates child profile metadata. Baseline is computed later fro
   - baseline-tagged sensor rows are stored
   - engagement prediction is skipped
 
-### Baseline calculation (5-minute still-state capture)
+### Baseline calculation (1-minute still-state capture)
 
-During baseline calibration, the user remains still for 5 minutes while sensor samples are collected.
+During baseline calibration, the user remains still for 1 minute while sensor samples are collected.
 
 Baselines are computed as:
 

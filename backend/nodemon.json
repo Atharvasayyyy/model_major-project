@@ -1,0 +1,6 @@
+{
+  "watch": ["server.js", "src/", "config/"],
+  "ext": "js,json",
+  "ignore": ["src/**/*.test.js", "*.md", "*.env*", "../serial_sensor_bridge.py", "../frontend/**"],
+  "delay": 500
+}
