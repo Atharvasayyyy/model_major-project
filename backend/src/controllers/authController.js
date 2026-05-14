@@ -59,4 +59,52 @@ async function login(req, res) {
   }
 }
 
-module.exports = { register, login };
+// ── Active child endpoints ────────────────────────────────────────────────────
+// These let the frontend tell the backend which child is currently "active" so
+// that sensor bridge data (which arrives without a child_id) routes to the right profile.
+
+async function getActiveChild(req, res) {
+  try {
+    const user = await User.findById(req.user._id).populate("active_child_id");
+    return res.json({
+      active_child_id: user.active_child_id?._id || null,
+      active_child: user.active_child_id || null,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to get active child", error: error.message });
+  }
+}
+
+async function setActiveChild(req, res) {
+  try {
+    const { child_id } = req.body;
+
+    if (!child_id) {
+      return res.status(400).json({ message: "child_id is required" });
+    }
+
+    // Verify the child belongs to this user before accepting it.
+    const Child = require("../models/Child");
+    const child = await Child.findOne({ _id: child_id, parent_id: req.user._id });
+    if (!child) {
+      return res.status(404).json({ message: "Child not found or not owned by user" });
+    }
+
+    await User.updateOne(
+      { _id: req.user._id },
+      { active_child_id: child_id },
+    );
+
+    console.log(`[ACTIVE CHILD] User ${req.user._id} set active child to ${child.child_name} (${child_id})`);
+
+    return res.json({
+      message: "Active child updated",
+      active_child_id: child_id,
+      active_child_name: child.child_name,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to set active child", error: error.message });
+  }
+}
+
+module.exports = { register, login, getActiveChild, setActiveChild };

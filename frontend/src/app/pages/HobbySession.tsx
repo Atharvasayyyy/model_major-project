@@ -175,11 +175,8 @@ export const HobbySession = () => {
         setSensorReady(online);
 
         if (!online) {
-          const hasOtherChildData = Array.isArray(stream)
-            && stream.some((row: any) => resolveChildId(row?.child_id) !== selectedChild.id);
-          setSensorHint(hasOtherChildData
-            ? "Sensor stream detected for another child profile. Select the correct child or reconnect this child device."
-            : "No sensor reading detected. Please attach the sensor and run the bridge.");
+          setSensorHint("No sensor reading detected. Please attach the sensor and run the bridge.");
+
         } else if (!isValidSensorReading(safeHr, safeHrv)) {
           setSensorHint("Place finger on sensor and wait for stable readings.");
         } else {

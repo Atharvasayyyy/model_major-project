@@ -49,9 +49,20 @@ export const ChildrenProvider = ({ children }: { children: ReactNode }) => {
     return saved ? JSON.parse(saved) : [];
   });
   
-  const [selectedChild, setSelectedChild] = useState<Child | null>(
+  const [selectedChild, _setSelectedChild] = useState<Child | null>(
     () => childrenList[0] || null
   );
+
+  // Sync the active child to the backend every time the selection changes so
+  // the sensor bridge automatically routes data to the right profile.
+  const setSelectedChild = (child: Child | null) => {
+    _setSelectedChild(child);
+    if (child?.id) {
+      api.setActiveChild(child.id).catch((err: any) =>
+        console.warn("[ACTIVE CHILD] Failed to sync to backend:", err?.message)
+      );
+    }
+  };
 
   useEffect(() => {
     if (!isAuthenticated) {

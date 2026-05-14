@@ -93,14 +93,35 @@ async function ingestSensorData(req, res) {
     }
 
     if (!child) {
-      // No child_id supplied — fall back to the most recently created child profile.
-      child = await Child.findOne().sort({ createdAt: -1 });
-      resolvedChildId = child ? String(child._id) : null;
+      // PRIORITY 1: Route to whichever child the user has currently selected in the dashboard.
+      // The bridge sends no auth token, so we look across ALL users for any active_child_id.
+      // In a single-family deployment (one parent, one sensor) this always resolves correctly.
+      const User = require("../models/User");
+      const userWithActiveChild = await User.findOne({ active_child_id: { $ne: null } })
+        .sort({ updatedAt: -1 });  // most recently updated user wins if there are multiple accounts
+
+      if (userWithActiveChild?.active_child_id) {
+        child = await Child.findById(userWithActiveChild.active_child_id);
+        if (child) {
+          resolvedChildId = String(child._id);
+          console.log(`[SENSOR ROUTING] Routed to active child: ${child.child_name} (${resolvedChildId})`);
+        }
+      }
+
+      // PRIORITY 2: Fall back to most recently created child (legacy / first-run behavior).
+      if (!child) {
+        child = await Child.findOne().sort({ createdAt: -1 });
+        resolvedChildId = child ? String(child._id) : null;
+        if (child) {
+          console.log(`[SENSOR ROUTING] No active child set — using most recent: ${child.child_name}`);
+        }
+      }
     }
 
     if (!child) {
       return res.status(404).json({ message: "No child profiles exist to attach sensor data to" });
     }
+
 
     console.log(`[SENSOR ROUTING] Mapped to child_id=${resolvedChildId}`);
 

@@ -91,8 +91,10 @@ def is_valid_sensor_reading(heart_rate: Any, hrv_rmssd: Any) -> tuple[bool, str]
     """
     if not is_number(heart_rate) or heart_rate == 0:
         return False, f"heartRate={heart_rate} (no finger detected on MAX30100)"
-    if not is_number(hrv_rmssd) or hrv_rmssd <= 0 or hrv_rmssd > HRV_RMSSD_MAX:
-        return False, f"hrvRmssd={hrv_rmssd} (out of plausible range 0-{HRV_RMSSD_MAX} ms)"
+    # Accept hrvRmssd = 0 (sensor warmup — only 1 beat detected so far, HRV needs 2+)
+    # Only reject NEGATIVE values or values above the physiological maximum.
+    if not is_number(hrv_rmssd) or hrv_rmssd < 0 or hrv_rmssd > HRV_RMSSD_MAX:
+        return False, f"hrvRmssd={hrv_rmssd} (out of plausible range 0 to {HRV_RMSSD_MAX} ms)"
     if heart_rate < HEART_RATE_MIN or heart_rate > HEART_RATE_MAX:
         return False, f"heartRate={heart_rate} (out of valid range {HEART_RATE_MIN}-{HEART_RATE_MAX} bpm)"
     return True, ""

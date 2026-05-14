@@ -10,7 +10,8 @@ const HEART_RATE_MAX    = 200;
 // Healthy adult RMSSD: 10-150ms. Children: 20-200ms.
 // Values above 250ms are virtually always artifacts (missed beats, RR calculation errors,
 // or sensor disconnection). 500ms was far too permissive.
-const HRV_RMSSD_MIN     = 1;    // ms — 0 means only 1 beat captured, useless
+const HRV_RMSSD_MIN     = 0;    // ms — 0 is valid: sensor warming up, only 1 beat captured yet
+                                 //        engagement scoring already skips hrv_rmssd=0 readings
 const HRV_RMSSD_MAX     = 250;  // ms — above this = sensor artifact
 // After gravity removal (abs(raw - 9.8)), normal rest = ~0, vigorous shake = 5-15 m/s².
 // 30 m/s² is the absolute ceiling for any human movement.

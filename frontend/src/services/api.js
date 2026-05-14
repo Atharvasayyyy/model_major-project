@@ -224,24 +224,48 @@ export async function getRealtimeAnalytics(childId) {
   );
 }
 
-export async function getEngagementTrend(childId) {
-  const { data } = await apiClient.get(`/analytics/engagement-trend/${childId}`);
-  if (!Array.isArray(data)) return [];
-  return data.map((row) => mapSensor(row, childId));
+// FIX 2.1 — window-aware versions
+export async function getEngagementTrend(childId, window = "7d") {
+  const { data } = await apiClient.get(`/analytics/engagement-trend/${childId}?window=${window}`);
+  // Backend now returns { trend: [...], window } — return the whole object
+  return data && Array.isArray(data.trend) ? data : { trend: [], window };
 }
 
-export async function getActivityInsights(childId) {
-  const { data } = await apiClient.get(`/analytics/activity-insights/${childId}`);
-  return Array.isArray(data) ? data : [];
+export async function getActivityInsights(childId, window = "7d") {
+  const { data } = await apiClient.get(`/analytics/activity-insights/${childId}?window=${window}`);
+  // Backend returns { activities: [...], window, total_samples }
+  return data && Array.isArray(data.activities)
+    ? data
+    : { activities: [], window, total_samples: 0 };
 }
 
-export async function getDailySummary(childId) {
-  const { data } = await apiClient.get(`/analytics/daily-summary/${childId}`);
+export async function getDailySummary(childId, window = "today") {
+  const { data } = await apiClient.get(`/analytics/daily-summary/${childId}?window=${window}`);
   return {
     average_heart_rate: Number(data?.average_heart_rate || 0),
     average_hrv: Number(data?.average_hrv || 0),
     average_engagement_score: Number(data?.average_engagement_score || 0),
+    sample_count: Number(data?.sample_count || 0),
+    sensor_count: Number(data?.sensor_count || 0),
+    window: data?.window || window,
   };
+}
+
+// FIX 2.1 — new analytics endpoints
+export async function getActivityTimeStats(childId, window = "7d") {
+  const { data } = await apiClient.get(`/analytics/activity-time-stats/${childId}?window=${window}`);
+  return data && Array.isArray(data.activities)
+    ? data
+    : { activities: [], window, total_seconds: 0, total_sessions: 0 };
+}
+
+export async function getTimeOfDayPattern(childId, window = "30d", activity = null) {
+  const params = new URLSearchParams({ window });
+  if (activity) params.append("activity", activity);
+  const { data } = await apiClient.get(`/analytics/time-of-day/${childId}?${params.toString()}`);
+  return data && Array.isArray(data.hourly)
+    ? data
+    : { hourly: Array.from({ length: 24 }, (_, h) => ({ hour: h, avg_engagement: null, sample_count: 0 })), window, activity: null };
 }
 
 export async function getAlerts(childId) {
@@ -283,6 +307,18 @@ export const api = {
   getDailySummary,
   getAlerts,
   getSensorStreamDebug,
+  getActivityTimeStats,
+  getTimeOfDayPattern,
+
+  // Active child routing
+  async setActiveChild(childId) {
+    const { data } = await apiClient.put("/auth/active-child", { child_id: childId });
+    return data;
+  },
+  async getActiveChild() {
+    const { data } = await apiClient.get("/auth/active-child");
+    return data;
+  },
 
   // Compatibility wrappers for existing app context usage
   async register(name, email, password) {
