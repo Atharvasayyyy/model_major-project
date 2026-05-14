@@ -7,6 +7,16 @@ import { api } from "../services/api";
 // Fix 3.4 — Duration is now 3 minutes (180s). Must match BASELINE_DURATION_SECONDS in baselineController.js.
 const BASELINE_DURATION_SECONDS = 180;
 const SENSOR_STREAM_STALE_MS    = 30_000;
+const BASELINE_MIN_SAMPLES      = 30;    // minimum valid readings to compute a reliable baseline
+
+function getQualityTooltip(quality: string): string {
+  switch (quality) {
+    case "HIGH":   return "Excellent calibration. 50+ readings with low motion. Engagement scores will be highly accurate.";
+    case "MEDIUM": return "Good calibration. Acceptable for engagement scoring but consider recalibrating in a quieter setting for best results.";
+    case "LOW":    return "Marginal calibration. Engagement scores may be less accurate. Recommend recalibrating with finger held very still.";
+    default:       return "";
+  }
+}
 
 function formatTime(totalSeconds: number): string {
   const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, "0");
@@ -71,6 +81,7 @@ export const BaselineCalibration = () => {
   const [result, setResult] = useState<CalibrationResult | null>(null);
   const [baselineInProgress, setBaselineInProgress] = useState(false);
   const [baselineSampleCount, setBaselineSampleCount] = useState(0);
+  const [previousBaseline, setPreviousBaseline] = useState<{ hr: number; rmssd: number } | null>(null);
   const finishTriggeredRef = useRef(false);
 
   const isValidSensorReading = (heartRate: number | null, hrv: number | null) => (
@@ -172,13 +183,8 @@ export const BaselineCalibration = () => {
         setSensorReady(online);
 
         if (!online) {
-          const hasOtherChildData = Array.isArray(stream)
-            && stream.some((row: any) => resolveChildId(row?.child_id) !== selectedChild.id);
-          setSensorHint(
-            hasOtherChildData
-              ? "Sensor stream detected for another child profile. Select the correct child or reconnect this child device."
-              : "No sensor reading detected. Please attach the sensor.",
-          );
+          // No wrong-child hint — sensor routes to active child automatically
+          setSensorHint("No sensor reading detected. Please attach the sensor.");
         } else if (!hasValidPhysiology) {
           setSensorHint("Place finger on sensor and wait for stable readings.");
         } else {
@@ -289,10 +295,15 @@ export const BaselineCalibration = () => {
     }
   };
 
-  // Fix 2.1 — recalibrate: reset all state and restart
+  // Fix 2.1 — recalibrate: reset all state and restart, preserve previous for comparison
   const handleRecalibrate = async () => {
     if (!selectedChild) return;
     if (!confirm("This will erase your current baseline and start a new 3-minute calibration. Continue?")) return;
+
+    // Save previous baseline values for post-calibration comparison
+    if (result?.hr_baseline && result?.rmssd_baseline) {
+      setPreviousBaseline({ hr: result.hr_baseline, rmssd: result.rmssd_baseline });
+    }
 
     setError("");
     setIsComplete(false);
@@ -387,7 +398,28 @@ export const BaselineCalibration = () => {
               <Activity className="h-4 w-4" /> Status
             </div>
             <p className="text-lg font-semibold">{statusLabel}</p>
-            <p className={`mt-1 text-xs ${sensorOnline ? "text-emerald-300" : "text-amber-300"}`}>{sensorHint}</p>
+
+            {/* Only show sensor hint when sensor is offline AND calibration is not complete */}
+            {!isComplete && (
+              <p className={`mt-1 text-xs ${sensorOnline ? "text-emerald-300" : "text-amber-300"}`}>
+                {sensorHint}
+              </p>
+            )}
+
+            {/* Completion confirmation — replaces sensor hint once done */}
+            {isComplete && (
+              <p className="mt-1 text-xs text-emerald-400">✓ Baseline established successfully</p>
+            )}
+
+            {/* Live sample counter during active collection */}
+            {isRunning && !isComplete && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                <span className="font-bold text-foreground">{baselineSampleCount}</span> valid readings
+                {baselineSampleCount < BASELINE_MIN_SAMPLES && (
+                  <span className="ml-1">(need {BASELINE_MIN_SAMPLES} min)</span>
+                )}
+              </p>
+            )}
           </div>
 
           <div className="rounded-lg border border-border bg-background p-4">
@@ -407,6 +439,38 @@ export const BaselineCalibration = () => {
             <p className="text-xs text-muted-foreground">Samples collected: {baselineSampleCount}</p>
           )}
         </div>
+
+        {/* Pre-calibration tips — shown when idle and not yet complete */}
+        {!isComplete && !isRunning && (
+          <div className="rounded-lg border border-purple-500/30 bg-gradient-to-br from-purple-500/10 to-blue-500/10 p-5">
+            <h4 className="mb-3 flex items-center gap-2 font-semibold text-purple-300">
+              📋 Before You Start
+            </h4>
+            <ul className="space-y-2 text-sm text-muted-foreground">
+              <li className="flex items-start gap-2">
+                <span className="mt-0.5 text-emerald-400">✓</span>
+                <span>Make sure your child is sitting comfortably and calm</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-0.5 text-emerald-400">✓</span>
+                <span>Place finger firmly on the MAX30100 sensor (cover both LEDs)</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-0.5 text-emerald-400">✓</span>
+                <span>Avoid talking or moving during the 3-minute collection window</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-0.5 text-emerald-400">✓</span>
+                <span>The calibration collects ~180 readings to compute a personal baseline</span>
+              </li>
+            </ul>
+            {!sensorOnline && (
+              <div className="mt-3 rounded border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-300">
+                ⚠ Sensor is currently offline. Make sure the ESP32 is connected and the bridge is running.
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Start button — shown when idle and not yet complete */}
         {!isComplete && !isRunning && (
@@ -440,41 +504,123 @@ export const BaselineCalibration = () => {
 
         {/* Success card */}
         {isComplete && result && (
-          <div className="space-y-4 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-5">
-            <div className="flex items-center gap-3 text-emerald-300">
-              <ShieldCheck className="h-5 w-5" />
-              <p className="font-semibold">Baseline calibration completed successfully.</p>
-              {/* Fix 3.2 — quality badge */}
-              <QualityBadge quality={result.quality ?? null} />
-            </div>
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-              <p>Heart Rate Baseline: <strong>{result.hr_baseline} bpm</strong></p>
-              <p>HRV Baseline: <strong>{result.rmssd_baseline} ms</strong></p>
-              {result.samples_used !== undefined && (
-                <p className="text-sm text-muted-foreground">Samples used: {result.samples_used}</p>
+          <>
+            <div className="space-y-4 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-5">
+              {/* Header row: title + quality badge */}
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-emerald-300">
+                  <ShieldCheck className="h-5 w-5" />
+                  <p className="font-semibold">Baseline calibration completed successfully.</p>
+                </div>
+                {result.quality && (
+                  <span
+                    className={`rounded border px-3 py-0.5 text-xs font-bold ${
+                      result.quality === "HIGH"
+                        ? "border-emerald-500/60 bg-emerald-500/20 text-emerald-300"
+                        : result.quality === "MEDIUM"
+                        ? "border-amber-500/60 bg-amber-500/20 text-amber-300"
+                        : "border-red-500/60 bg-red-500/20 text-red-300"
+                    }`}
+                    title={getQualityTooltip(result.quality)}
+                  >
+                    Quality: {result.quality}
+                  </span>
+                )}
+              </div>
+
+              {/* Baseline values */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-muted-foreground">Heart Rate Baseline</p>
+                  <p className="text-xl font-bold">{result.hr_baseline} <span className="text-sm font-normal text-muted-foreground">bpm</span></p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">HRV Baseline</p>
+                  <p className="text-xl font-bold">{result.rmssd_baseline} <span className="text-sm font-normal text-muted-foreground">ms</span></p>
+                </div>
+              </div>
+
+              {/* Sample count + avg motion */}
+              {(result.samples_used !== undefined || result.avg_motion !== undefined) && (
+                <p className="border-t border-emerald-500/20 pt-2 text-xs text-muted-foreground">
+                  {result.samples_used !== undefined && <>Computed from <strong className="text-foreground">{result.samples_used}</strong> valid readings</>}
+                  {result.avg_motion !== undefined && <> · avg motion: <strong className="text-foreground">{result.avg_motion.toFixed(3)}</strong> m/s²</>}
+                </p>
               )}
-              {result.avg_motion !== undefined && (
-                <p className="text-sm text-muted-foreground">Avg. motion: {result.avg_motion} m/s²</p>
+
+              {/* Previous baseline comparison (shown after recalibrate) */}
+              {previousBaseline && (
+                <div className="rounded-lg border border-border bg-background/60 p-3 text-sm">
+                  <p className="mb-2 text-xs font-semibold text-muted-foreground">Comparison with previous baseline</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Heart Rate</p>
+                      <p>
+                        {previousBaseline.hr.toFixed(1)} → {result.hr_baseline.toFixed(1)} bpm
+                        <span className={`ml-2 text-xs font-semibold ${
+                          result.hr_baseline <= previousBaseline.hr ? "text-emerald-400" : "text-amber-400"
+                        }`}>
+                          ({result.hr_baseline > previousBaseline.hr ? "+" : ""}{(result.hr_baseline - previousBaseline.hr).toFixed(1)})
+                        </span>
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">HRV</p>
+                      <p>
+                        {previousBaseline.rmssd.toFixed(1)} → {result.rmssd_baseline.toFixed(1)} ms
+                        <span className={`ml-2 text-xs font-semibold ${
+                          result.rmssd_baseline >= previousBaseline.rmssd ? "text-emerald-400" : "text-amber-400"
+                        }`}>
+                          ({result.rmssd_baseline > previousBaseline.rmssd ? "+" : ""}{(result.rmssd_baseline - previousBaseline.rmssd).toFixed(1)})
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+                </div>
               )}
+
+              {/* Action buttons */}
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={() => navigate("/app/hobby-session")}
+                  className="rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white transition hover:bg-emerald-700"
+                >
+                  Continue To Hobby Monitoring
+                </button>
+                <button
+                  onClick={handleRecalibrate}
+                  disabled={isSubmitting}
+                  className="inline-flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm font-semibold text-amber-300 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Recalibrate
+                </button>
+              </div>
             </div>
-            <div className="flex flex-wrap gap-3">
-              <button
-                onClick={() => navigate("/app/hobby-session")}
-                className="rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white transition hover:bg-emerald-700"
-              >
-                Continue To Hobby Monitoring
-              </button>
-              {/* Fix 2.1 — recalibrate button */}
-              <button
-                onClick={handleRecalibrate}
-                disabled={isSubmitting}
-                className="inline-flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm font-semibold text-amber-300 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
-                Recalibrate
-              </button>
+
+            {/* "What does this mean?" explainer */}
+            <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-4">
+              <h4 className="mb-2 flex items-center gap-2 font-semibold text-blue-300">
+                💡 What do these values mean?
+              </h4>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>
+                  <strong className="text-foreground">Heart Rate Baseline ({result.hr_baseline.toFixed(1)} bpm):</strong>{" "}
+                  Your child's typical resting heart rate. Future engagement scores compare live readings
+                  against this value to detect arousal levels during activity.
+                </p>
+                <p>
+                  <strong className="text-foreground">HRV Baseline ({result.rmssd_baseline.toFixed(1)} ms):</strong>{" "}
+                  Your child's heart rate variability at rest. Higher values generally indicate better
+                  autonomic nervous system regulation and lower stress.
+                </p>
+                <p className="border-t border-blue-500/20 pt-2 text-xs">
+                  💡 Recalibrate in a few weeks if your child's resting heart rate changes significantly
+                  (e.g., after a sustained exercise routine or growth spurt).
+                </p>
+              </div>
             </div>
-          </div>
+          </>
         )}
       </div>
     </div>

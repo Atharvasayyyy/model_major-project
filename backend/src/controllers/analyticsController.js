@@ -20,6 +20,9 @@ function isBaselineReady(child) {
   );
 }
 
+// ─── Placeholder labels that must never appear in user-facing analytics ────────
+const EXCLUDED_LABELS = ["Sensor Stream", "Baseline Calibration"];
+
 // ─── EXISTING (unchanged) ────────────────────────────────────────────────────
 
 async function getRealtime(req, res) {
@@ -61,18 +64,62 @@ async function getAlerts(req, res) {
     const { child_id } = req.params;
     const child = await ensureChildOwnership(child_id, req.user._id);
     if (!child) return res.status(404).json({ message: "Child not found" });
-    if (!isBaselineReady(child)) {
-      return res.json([]);
-    }
 
+    // NOTE: No baseline guard here — alerts are always meaningful regardless of baseline.
     const alerts = await Alert.find({ child_id })
-      .sort({ createdAt: -1 })
-      .limit(50);
-    return res.json(alerts);
+      .sort({ is_read: 1, createdAt: -1 }) // unread first, then newest
+      .limit(100);
+
+    const summary = {
+      total:  alerts.length,
+      unread: alerts.filter((a) => !a.is_read).length,
+      by_type: {
+        high_stress:         alerts.filter((a) => a.alert_type === "high_stress").length,
+        low_engagement:      alerts.filter((a) => a.alert_type === "low_engagement").length,
+        abnormal_heart_rate: alerts.filter((a) => a.alert_type === "abnormal_heart_rate").length,
+      },
+    };
+
+    return res.json({ alerts, summary });
   } catch (error) {
-    return res
-      .status(500)
-      .json({ message: "Failed to fetch alerts", error: error.message });
+    return res.status(500).json({ message: "Failed to fetch alerts", error: error.message });
+  }
+}
+
+async function markAlertAsRead(req, res) {
+  try {
+    const { alertId } = req.params;
+    const alert = await Alert.findById(alertId);
+    if (!alert) return res.status(404).json({ message: "Alert not found" });
+
+    // Verify parent owns this child
+    const child = await Child.findOne({ _id: alert.child_id, parent_id: req.user._id });
+    if (!child) return res.status(403).json({ message: "Not authorized" });
+
+    alert.is_read = true;
+    alert.read_at = new Date();
+    await alert.save();
+
+    return res.json({ message: "Alert marked as read", alert });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to mark alert as read", error: error.message });
+  }
+}
+
+async function markAllAlertsAsRead(req, res) {
+  try {
+    const { childId } = req.params;
+    const child = await Child.findOne({ _id: childId, parent_id: req.user._id });
+    if (!child) return res.status(403).json({ message: "Not authorized" });
+
+    const result = await Alert.updateMany(
+      { child_id: childId, is_read: false },
+      { $set: { is_read: true, read_at: new Date() } },
+    );
+
+    return res.json({ message: "All alerts marked as read", modified: result.modifiedCount });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to mark all alerts as read", error: error.message });
   }
 }
 
@@ -98,7 +145,13 @@ async function getActivityInsights(req, res) {
     const timeMatch = buildTimeMatch(window);
 
     const insights = await EngagementResult.aggregate([
-      { $match: { child_id: child._id, ...timeMatch } },
+      {
+        $match: {
+          child_id: child._id,
+          activity: { $nin: EXCLUDED_LABELS },
+          ...timeMatch,
+        },
+      },
       {
         $group: {
           _id: "$activity",
@@ -158,7 +211,13 @@ async function getEngagementTrend(req, res) {
     // server's local calendar day (UTC+5:30).  Change to "UTC" or your actual
     // timezone if deploying outside India.
     const trend = await EngagementResult.aggregate([
-      { $match: { child_id: child._id, ...timeMatch } },
+      {
+        $match: {
+          child_id: child._id,
+          activity: { $nin: EXCLUDED_LABELS },
+          ...timeMatch,
+        },
+      },
       {
         $group: {
           _id: {
@@ -214,8 +273,9 @@ async function getActivityTimeStats(req, res) {
       {
         $match: {
           child_id: child._id,
-          session_active: false, // completed sessions only
+          session_active: false,
           duration_seconds: { $ne: null, $gt: 0 },
+          activity: { $nin: EXCLUDED_LABELS },
           ...timeMatch,
         },
       },
@@ -293,6 +353,7 @@ async function getTimeOfDayPattern(req, res) {
       {
         $match: {
           child_id: child._id,
+          activity: { $nin: EXCLUDED_LABELS },
           ...timeMatch,
           ...activityMatch,
         },
@@ -381,7 +442,13 @@ async function getDailySummary(req, res) {
     ]);
 
     const [engagementAgg] = await EngagementResult.aggregate([
-      { $match: { child_id: child._id, ...timeMatch } },
+      {
+        $match: {
+          child_id: child._id,
+          activity: { $nin: EXCLUDED_LABELS },
+          ...timeMatch,
+        },
+      },
       {
         $group: {
           _id: null,
@@ -424,6 +491,8 @@ module.exports = {
   getActivityInsights,
   getDailySummary,
   getAlerts,
+  markAlertAsRead,
+  markAllAlertsAsRead,
   getActivityTimeStats,
   getTimeOfDayPattern,
 };

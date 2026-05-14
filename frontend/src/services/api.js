@@ -320,6 +320,16 @@ export const api = {
     return data;
   },
 
+  // Alert management
+  async markAlertRead(alertId) {
+    const { data } = await apiClient.put(`/analytics/alerts/${alertId}/read`);
+    return data;
+  },
+  async markAllAlertsRead(childId) {
+    const { data } = await apiClient.put(`/analytics/alerts/read-all/${childId}`);
+    return data;
+  },
+
   // Compatibility wrappers for existing app context usage
   async register(name, email, password) {
     return registerUser({ name, email, password });

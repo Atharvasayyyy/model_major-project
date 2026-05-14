@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useChildren } from "../context/ChildrenContext";
 import { TrendingUp, Clock, Activity, BarChart2 } from "lucide-react";
 import { api } from "../services/api";
@@ -153,6 +153,13 @@ type WindowValue = (typeof WINDOW_OPTIONS)[number]["value"];
 
 // ─── main component ──────────────────────────────────────────────────────────
 
+// ── helper: formatHour AM/PM ──────────────────────────────────────────────
+function formatHour(h: number): string {
+  const ampm = h < 12 ? "AM" : "PM";
+  const display = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${display}${ampm}`;
+}
+
 export const Analytics = () => {
   const { selectedChild } = useChildren();
   const [win, setWin] = useState<WindowValue>("7d");
@@ -197,6 +204,13 @@ export const Analytics = () => {
   }>({ hourly: [], activity: null });
   const [todLoading, setTodLoading] = useState(false);
   const [tofActivity, setTofActivity] = useState("");
+
+  // has any data at all?
+  const hasAnyData =
+    summary.sample_count > 0 ||
+    insightsData.activities.length > 0 ||
+    trendData.trend.length > 0 ||
+    timeStats.activities.length > 0;
 
   // ── fetch when child or window changes ──────────────────────────────────
   useEffect(() => {
@@ -263,6 +277,15 @@ export const Analytics = () => {
 
   const engPct = (summary.average_engagement_score * 100).toFixed(1);
 
+  // ── Peak hour derivation ─────────────────────────────────────────────────
+  const peakHour: any | null = (() => {
+    const valid = timeOfDay.hourly.filter((h: any) => h.avg_engagement !== null);
+    if (!valid.length) return null;
+    return valid.reduce((best: any, h: any) =>
+      h.avg_engagement > best.avg_engagement ? h : best
+    );
+  })();
+
   return (
     <div className="space-y-8 p-8">
 
@@ -292,6 +315,30 @@ export const Analytics = () => {
           ))}
         </div>
       </div>
+
+      {/* ── SETUP REQUIRED BANNER ─────────────────────────────────────────── */}
+      {!hasAnyData && !summaryLoading && !insightsLoading && (
+        <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-5">
+          <div className="flex items-start gap-3">
+            <span className="text-3xl">📊</span>
+            <div className="flex-1">
+              <p className="mb-2 font-semibold text-blue-300">
+                Analytics will appear here as data is collected
+              </p>
+              <p className="mb-3 text-sm text-muted-foreground">
+                To populate this dashboard, complete a few activity sessions:
+              </p>
+              <ol className="ml-4 list-decimal space-y-1 text-sm text-muted-foreground">
+                <li>Make sure baseline calibration is complete</li>
+                <li>Go to <button onClick={() => window.location.href="/app/hobby-session"} className="text-blue-400 underline">Hobby Session</button></li>
+                <li>Run 2–3 sessions with different activities (e.g., Reading + Sports + Math)</li>
+                <li>Each session needs at least 30–60 seconds of data</li>
+                <li>Return here to see your insights</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── SECTION A — Summary cards ────────────────────────────────────── */}
       <section>
@@ -363,6 +410,166 @@ export const Analytics = () => {
           </div>
         )}
       </section>
+
+      {/* ── KEY INSIGHTS ────────────────────────────────────────────────── */}
+      {(insightsData.activities.length > 0 || timeStats.activities.length > 0 || peakHour) && (
+        <section>
+          <h2 className="mb-4 flex items-center gap-2 text-xl font-bold">
+            💡 Key Insights
+          </h2>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+
+            {/* Best Activity */}
+            {insightsData.activities[0] && (
+              <div className="rounded-lg border border-emerald-500/30 bg-gradient-to-br from-emerald-900/40 to-emerald-800/20 p-5">
+                <div className="mb-2 flex items-center gap-3">
+                  <span className="text-3xl">🏆</span>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-emerald-300">Best Activity</span>
+                </div>
+                <p className="mb-1 text-2xl font-bold">{insightsData.activities[0].activity}</p>
+                <p className="text-sm text-muted-foreground">
+                  Engagement:{" "}
+                  <span className="font-bold text-emerald-400">
+                    {(insightsData.activities[0].avg_engagement * 100).toFixed(0)}%
+                  </span>
+                  <span className="ml-2 text-muted-foreground/70">
+                    across {insightsData.activities[0].sample_count} readings
+                  </span>
+                </p>
+                <div className="mt-2">
+                  <CategoryBadge category={insightsData.activities[0].activity_category ?? null} />
+                </div>
+              </div>
+            )}
+
+            {/* Needs Attention (lowest) */}
+            {insightsData.activities.length > 1 && (() => {
+              const worst = insightsData.activities[insightsData.activities.length - 1];
+              return (
+                <div className="rounded-lg border border-red-500/30 bg-gradient-to-br from-red-900/40 to-amber-900/20 p-5">
+                  <div className="mb-2 flex items-center gap-3">
+                    <span className="text-3xl">⚠️</span>
+                    <span className="text-xs font-semibold uppercase tracking-wide text-red-300">Needs Attention</span>
+                  </div>
+                  <p className="mb-1 text-2xl font-bold">{worst.activity}</p>
+                  <p className="text-sm text-muted-foreground">
+                    Engagement:{" "}
+                    <span className="font-bold text-red-400">
+                      {(worst.avg_engagement * 100).toFixed(0)}%
+                    </span>
+                    <span className="ml-2 text-muted-foreground/70">
+                      across {worst.sample_count} readings
+                    </span>
+                  </p>
+                  <p className="mt-2 text-xs text-muted-foreground">Consider varying approach or reducing session duration</p>
+                </div>
+              );
+            })()}
+
+            {/* Most Time Spent */}
+            {timeStats.activities[0] && (
+              <div className="rounded-lg border border-purple-500/30 bg-gradient-to-br from-purple-900/40 to-purple-800/20 p-5">
+                <div className="mb-2 flex items-center gap-3">
+                  <span className="text-3xl">⏱</span>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-purple-300">Most Time Spent</span>
+                </div>
+                <p className="mb-1 text-2xl font-bold">{timeStats.activities[0].activity}</p>
+                <p className="text-sm text-muted-foreground">
+                  Total:{" "}
+                  <span className="font-bold text-purple-400">{formatDuration(timeStats.activities[0].total_seconds)}</span>
+                  <span className="ml-2 text-muted-foreground/70">
+                    in {timeStats.activities[0].session_count} session{timeStats.activities[0].session_count !== 1 ? "s" : ""}
+                  </span>
+                </p>
+              </div>
+            )}
+
+            {/* Peak Hour */}
+            {peakHour && (
+              <div className="rounded-lg border border-amber-500/30 bg-gradient-to-br from-amber-900/40 to-orange-800/20 p-5">
+                <div className="mb-2 flex items-center gap-3">
+                  <span className="text-3xl">☀️</span>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-amber-300">Peak Engagement Hour</span>
+                </div>
+                <p className="mb-1 text-2xl font-bold">{formatHour(peakHour.hour)}</p>
+                <p className="text-sm text-muted-foreground">
+                  Engagement:{" "}
+                  <span className="font-bold text-amber-400">
+                    {(peakHour.avg_engagement * 100).toFixed(0)}%
+                  </span>
+                  <span className="ml-2 text-muted-foreground/70">({peakHour.sample_count} readings)</span>
+                </p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Best time of day for {timeOfDay.activity || "any activity"}
+                </p>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* ── ACTIVE vs SEDENTARY COMPARISON ────────────────────────────────── */}
+      {insightsData.activities.length > 1 && (
+        <section>
+          <h2 className="mb-4 flex items-center gap-2 text-xl font-bold">
+            ⚖️ Active vs Sedentary Performance
+          </h2>
+          <div className="grid grid-cols-2 gap-4">
+            {((): React.ReactNode => {
+              const acts = insightsData.activities.filter(a => a.activity_category === "active");
+              if (!acts.length) return (
+                <div className="rounded-lg border border-border bg-card p-5 opacity-50">
+                  <p className="mb-2 text-sm text-orange-300">🏃 Active Activities</p>
+                  <p className="text-2xl font-bold text-muted-foreground">No data yet</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Try Sports or Free Play sessions</p>
+                </div>
+              );
+              const total = acts.reduce((s, a) => s + a.sample_count, 0);
+              const avg   = acts.reduce((s, a) => s + a.avg_engagement * a.sample_count, 0) / total;
+              return (
+                <div className="rounded-lg border border-orange-500/30 bg-gradient-to-br from-orange-900/30 to-orange-800/10 p-5">
+                  <p className="mb-2 text-sm text-orange-300">🏃 Active Activities</p>
+                  <p className="text-3xl font-bold text-orange-400">{(avg * 100).toFixed(0)}%</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Avg engagement · {acts.length} activities · {total} readings
+                  </p>
+                  <p className="mt-2 text-xs text-muted-foreground/60">
+                    {acts.map(a => a.activity).join(", ")}
+                  </p>
+                </div>
+              );
+            })()}
+            {((): React.ReactNode => {
+              const acts = insightsData.activities.filter(a => a.activity_category === "sedentary");
+              if (!acts.length) return (
+                <div className="rounded-lg border border-border bg-card p-5 opacity-50">
+                  <p className="mb-2 text-sm text-blue-300">📖 Sedentary Activities</p>
+                  <p className="text-2xl font-bold text-muted-foreground">No data yet</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Try Reading or Math sessions</p>
+                </div>
+              );
+              const total = acts.reduce((s, a) => s + a.sample_count, 0);
+              const avg   = acts.reduce((s, a) => s + a.avg_engagement * a.sample_count, 0) / total;
+              return (
+                <div className="rounded-lg border border-blue-500/30 bg-gradient-to-br from-blue-900/30 to-blue-800/10 p-5">
+                  <p className="mb-2 text-sm text-blue-300">📖 Sedentary Activities</p>
+                  <p className="text-3xl font-bold text-blue-400">{(avg * 100).toFixed(0)}%</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Avg engagement · {acts.length} activities · {total} readings
+                  </p>
+                  <p className="mt-2 text-xs text-muted-foreground/60">
+                    {acts.map(a => a.activity).join(", ")}
+                  </p>
+                </div>
+              );
+            })()}
+          </div>
+          <p className="mt-3 text-xs italic text-muted-foreground">
+            💡 Different categories use different scoring formulas: motion is weighted positively
+            for active activities, negatively for sedentary ones.
+          </p>
+        </section>
+      )}
 
       {/* ── SECTION B/C — Activity bar chart + table ─────────────────────── */}
       <section>
@@ -670,7 +877,7 @@ export const Analytics = () => {
                   tickLine={false}
                   stroke="#717182"
                   tick={{ fontSize: 11 }}
-                  tickFormatter={(h) => `${h}:00`}
+                  tickFormatter={(h) => formatHour(h)}
                   interval={2}
                 />
                 <YAxis
@@ -687,9 +894,10 @@ export const Analytics = () => {
                     <Cell
                       key={entry.hour}
                       fill={
-                        entry.avg_engagement != null
-                          ? "#f59e0b"
-                          : "rgba(113,113,130,0.18)"
+                        entry.avg_engagement == null ? "rgba(113,113,130,0.18)" :
+                        entry.avg_engagement >= 0.7  ? "#10b981" :
+                        entry.avg_engagement >= 0.4  ? "#f59e0b" :
+                                                        "#ef4444"
                       }
                     />
                   ))}
