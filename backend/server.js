@@ -11,6 +11,7 @@ const sensorDataRoutes = require("./src/routes/sensorDataRoutes");
 const sensorStatusRoutes = require("./src/routes/sensorStatusRoutes");
 const debugRoutes = require("./src/routes/debugRoutes");
 const activityRoutes = require("./src/routes/activityRoutes");
+
 const analyticsRoutes = require("./src/routes/analyticsRoutes");
 const alertsRoutes = require("./src/routes/alertsRoutes");
 
@@ -47,7 +48,11 @@ app.use("/api", (_req, res, next) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/children", authMiddleware, childrenRoutes);
 app.use("/api/baseline", authMiddleware, baselineRoutes);
-app.use("/api/activity", authMiddleware, activityRoutes);
+// /api/activity/categories is public (frontend dropdown population)
+app.use("/api/activity", activityRoutes.publicRouter);
+// All other /api/activity/* routes require auth
+app.use("/api/activity", authMiddleware, activityRoutes.router);
+
 app.use("/api/sensor-data", sensorDataRoutes);
 app.use("/api/sensor-status", authMiddleware, sensorStatusRoutes);
 app.use("/api/debug", authMiddleware, debugRoutes);

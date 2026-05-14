@@ -1,15 +1,5 @@
-const activityMap = {
-  reading: "cognitive_indoor",
-  homework: "cognitive_indoor",
-  drawing: "creative_indoor",
-  football: "outdoor_sport",
-  cycling: "outdoor_sport",
-  gaming: "digital_activity",
-};
+// Fix 2 — thin re-export so existing callers need no changes.
+// All logic now lives in backend/src/config/activityCategories.js
+const { categorizeActivity } = require("../config/activityCategories");
+module.exports = categorizeActivity;
 
-function categorizeActivity(activity = "") {
-  const key = String(activity).trim().toLowerCase();
-  return activityMap[key] || "other";
-}
-
-module.exports = { categorizeActivity };

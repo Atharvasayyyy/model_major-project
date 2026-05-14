@@ -137,6 +137,12 @@ export async function finishBaseline(child_id) {
   return data;
 }
 
+// Fix 2.4 — cancel an in-progress baseline calibration
+export async function cancelBaseline(child_id) {
+  const { data } = await apiClient.post("/baseline/cancel", { child_id });
+  return data;
+}
+
 export async function getBaselineStatus(childId) {
   const { data } = await apiClient.get(`/baseline/status/${childId}`);
   return {
@@ -174,6 +180,18 @@ export async function getActivityStatus(childId) {
     finished_at: data?.finished_at || null,
   };
 }
+
+export async function getActivityCategories() {
+  const { data } = await apiClient.get("/activity/categories");
+  return data;
+}
+
+export async function getActivityHistory(childId, limit = 20, skip = 0) {
+  const { data } = await apiClient.get(`/activity/history/${childId}?limit=${limit}&skip=${skip}`);
+  // Backend returns { sessions: [], pagination: { total, limit, skip, has_more } }
+  return data;
+}
+
 
 export async function postSensorData(payload) {
   const { data } = await apiClient.post("/sensor-data", payload);
@@ -250,11 +268,14 @@ export const api = {
   startBaseline,
   recordBaseline,
   finishBaseline,
+  cancelBaseline, // Fix 2.4
   getBaselineStatus,
   getSensorStatus,
   startActivitySession,
   finishActivitySession,
   getActivityStatus,
+  getActivityCategories,
+  getActivityHistory,
   postSensorData,
   getRealtimeAnalytics,
   getEngagementTrend,

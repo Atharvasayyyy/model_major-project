@@ -25,6 +25,33 @@ export const DashboardLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [baselineReady, setBaselineReady] = useState<boolean | null>(null);
+  const [activeSession, setActiveSession] = useState<{ active: boolean; activity: string | null } | null>(null);
+
+  useEffect(() => {
+    if (!isAuthenticated || !selectedChild) {
+      setActiveSession(null);
+      return;
+    }
+
+    let mounted = true;
+    const pollActivity = async () => {
+      try {
+        const res = await api.getActivityStatus(selectedChild.id);
+        if (mounted) {
+          setActiveSession({ active: res.session_active, activity: res.activity });
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    pollActivity();
+    const intervalId = setInterval(pollActivity, 10000);
+    return () => {
+      mounted = false;
+      clearInterval(intervalId);
+    };
+  }, [isAuthenticated, selectedChild]);
 
   useEffect(() => {
     let mounted = true;
@@ -109,6 +136,22 @@ export const DashboardLayout = () => {
                 ))}
               </select>
               <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+            </div>
+          </div>
+        )}
+
+        {/* Global Session Indicator */}
+        {activeSession?.active && (
+          <div className="px-4 pb-4 border-b border-border">
+            <div className="rounded-lg bg-cyan-500/10 border border-cyan-500/30 p-3 flex flex-col gap-1">
+              <div className="flex items-center gap-2 text-cyan-400 text-sm font-semibold">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
+                </span>
+                Active Session
+              </div>
+              <p className="text-white font-medium text-sm">{activeSession.activity}</p>
             </div>
           </div>
         )}

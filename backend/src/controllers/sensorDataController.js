@@ -7,6 +7,9 @@ const Alert = require("../models/Alert");
 const { predictEngagement } = require("../services/engagementModel");
 
 const SENSOR_OFFLINE_THRESHOLD_MS = 30_000;
+// Max motion (m/s², post gravity-removal) allowed during baseline sample collection.
+// A resting, still child should show < 0.3. Walking/fidgeting produces > 1.0.
+const BASELINE_MAX_MOTION = 0.3;
 
 function isStrictEngagementSignal(heart_rate, hrv_rmssd) {
   return Number.isFinite(heart_rate) && heart_rate >= 40 && heart_rate <= 200
@@ -103,30 +106,59 @@ async function ingestSensorData(req, res) {
 
     const eventTime = new Date();
     const normalizedHeartRate = Number.isFinite(heart_rate) ? heart_rate : 0;
-    const normalizedHrvRmssd = Number.isFinite(hrv_rmssd) ? hrv_rmssd : 0;
+    const normalizedHrvRmssd  = Number.isFinite(hrv_rmssd)  ? hrv_rmssd  : 0;
 
     // Track device liveness even for warm-up/invalid physiological values.
     await Child.updateOne({ _id: resolvedChildId }, { sensor_last_seen_at: eventTime });
 
-    // NOTE: baseline_in_progress is read here once from the in-memory child document.
-    // Race condition: if the user stops calibration mid-request, this flag may be stale
-    // and a sample will still be created for the just-ended session.
-    // This will be addressed in Step 3 (Baseline review) with an atomic findOne + session check.
-    const rawActivity = child.baseline_in_progress ? "Baseline Calibration" : "Sensor Stream";
+    // Fix 8 — Look up the activity session BEFORE creating the SensorData row so we can
+    // (a) set activity correctly in the first write (kills the two-step write bug), and
+    // (b) set activity_session_id on the raw row without a second save().
+    // Baseline mode short-circuits below so we only need the session during normal scoring.
+    let activitySession     = null;
+    let activitySessionId   = null;
+    let sessionActivity     = null;
+    let sessionCategory     = null;
+
+    if (!child.baseline_in_progress) {
+      activitySession   = await ActivitySession.findOne({ child_id: child._id, session_active: true });
+      activitySessionId = activitySession ? activitySession._id : null;
+      sessionActivity   = activitySession ? activitySession.activity   : null;
+      sessionCategory   = activitySession ? activitySession.category   : null;
+    }
+
+    // Activity label written at creation time (not patched in a second save)
+    const rawActivity = child.baseline_in_progress
+      ? "Baseline Calibration"
+      : (activitySession ? activitySession.activity : "Sensor Stream");
+
     const rawRow = await SensorData.create({
-      child_id: resolvedChildId,
-      activity: rawActivity,
-      heart_rate: normalizedHeartRate,
-      hrv_rmssd: normalizedHrvRmssd,
+      child_id:            resolvedChildId,
+      activity_session_id: activitySessionId, // Fix 8 — set at creation (was null before)
+      activity:            rawActivity,        // Fix 8 — correct label on first write
+      heart_rate:          normalizedHeartRate,
+      hrv_rmssd:           normalizedHrvRmssd,
       motion_level,
       spo2,
       restlessness_index,
-      session_id: session_id ?? null,
+      session_id:      session_id ?? null,
       esp32_uptime_ms: esp32_uptime_ms ?? null,
-      timestamp: eventTime,
+      timestamp:       eventTime,
     });
 
     if (child.baseline_in_progress) {
+      // Fix 1.1 — motion quality gate: reject samples where the child was moving.
+      // Still saved to SensorData (raw history preserved), but NOT counted toward the baseline.
+      if (Number.isFinite(motion_level) && Math.abs(motion_level) > BASELINE_MAX_MOTION) {
+        return res.status(202).json({
+          message: "Sample rejected from baseline: child not still",
+          baseline_mode: true,
+          rejected: true,
+          reason: `motion_level=${motion_level} exceeds calibration threshold (${BASELINE_MAX_MOTION} m/s²)`,
+          sensor_data: rawRow, // raw row still saved to SensorData above
+        });
+      }
+
       await BaselineSample.create({
         child_id: resolvedChildId,
         heart_rate: normalizedHeartRate,
@@ -145,15 +177,15 @@ async function ingestSensorData(req, res) {
 
     const baselineReady = Number.isFinite(child.hr_baseline) && child.hr_baseline > 0
       && Number.isFinite(child.rmssd_baseline) && child.rmssd_baseline > 0;
-    const session = await ActivitySession.findOne({ child_id: child._id, session_active: true });
+    // activitySession already resolved above (before SensorData.create)
 
-    if (!baselineReady || !session) {
+    if (!baselineReady || !activitySession) {
       return res.status(201).json({
         message: "Sensor data stored. Engagement scoring skipped until baseline is ready and activity session is active.",
-        scoring_skipped: true,
-        baseline_ready: baselineReady,
-        activity_session_active: Boolean(session),
-        sensor_data: rawRow,
+        scoring_skipped:         true,
+        baseline_ready:          baselineReady,
+        activity_session_active: Boolean(activitySession),
+        sensor_data:             rawRow,
       });
     }
 
@@ -166,28 +198,28 @@ async function ingestSensorData(req, res) {
       });
     }
 
-    const activity = session.activity;
-    const activity_category = session.category;
+    const activity          = sessionActivity;
+    const activity_category = sessionCategory;
 
     const prediction = await predictEngagement({
-      heart_rate: normalizedHeartRate,
-      hrv_rmssd: normalizedHrvRmssd,
+      heart_rate:        normalizedHeartRate,
+      hrv_rmssd:         normalizedHrvRmssd,
       motion_level,
-      hr_baseline: child.hr_baseline,
-      rmssd_baseline: child.rmssd_baseline,
-      activity_category,
+      hr_baseline:       child.hr_baseline,
+      rmssd_baseline:    child.rmssd_baseline,
+      activity_category, // Fix 8 — now flows into the formula (was discarded before)
     });
 
-    rawRow.activity = activity;
-    await rawRow.save();
+    // Fix 8 — activity already set at creation; no second rawRow.save() needed.
 
     const resultRow = await EngagementResult.create({
-      child_id: resolvedChildId,
+      child_id:            resolvedChildId,
+      activity_session_id: activitySessionId, // Fix 8 — links score to session
       activity,
-      arousal: prediction.arousal,
-      valence: prediction.valence,
+      arousal:          prediction.arousal,
+      valence:          prediction.valence,
       engagement_score: prediction.engagement_score,
-      timestamp: eventTime,
+      timestamp:        eventTime,
     });
 
     const alerts = await createAlertsIfNeeded({

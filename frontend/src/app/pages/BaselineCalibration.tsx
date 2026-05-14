@@ -1,16 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { Activity, Clock3, Heart, Loader2, ShieldCheck } from "lucide-react";
+import { Activity, Clock3, Heart, Loader2, ShieldCheck, XCircle } from "lucide-react";
 import { useChildren } from "../context/ChildrenContext";
 import { api } from "../services/api";
 
-const BASELINE_DURATION_SECONDS = 1 * 60;
-const SENSOR_STREAM_STALE_MS = 30_000;
+// Fix 3.4 — Duration is now 3 minutes (180s). Must match BASELINE_DURATION_SECONDS in baselineController.js.
+const BASELINE_DURATION_SECONDS = 180;
+const SENSOR_STREAM_STALE_MS    = 30_000;
 
 function formatTime(totalSeconds: number): string {
-  const minutes = Math.floor(totalSeconds / 60)
-    .toString()
-    .padStart(2, "0");
+  const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, "0");
   const seconds = (totalSeconds % 60).toString().padStart(2, "0");
   return `${minutes}:${seconds}`;
 }
@@ -23,6 +22,37 @@ function resolveChildId(value: any): string {
   }
   return "";
 }
+
+// Fix 3.2 — quality badge helper
+function QualityBadge({ quality }: { quality: "HIGH" | "MEDIUM" | "LOW" | null }) {
+  if (!quality) return null;
+  const styles: Record<string, string> = {
+    HIGH:   "border-emerald-500/60 bg-emerald-500/20 text-emerald-300",
+    MEDIUM: "border-amber-500/60 bg-amber-500/20 text-amber-300",
+    LOW:    "border-red-500/60 bg-red-500/20 text-red-300",
+  };
+  const tooltips: Record<string, string> = {
+    HIGH:   "Excellent calibration — many still samples collected.",
+    MEDIUM: "Good calibration — acceptable number of still samples.",
+    LOW:    "Poor calibration — consider recalibrating in a quieter setting.",
+  };
+  return (
+    <span
+      className={`rounded border px-2 py-0.5 text-xs font-semibold ${styles[quality]}`}
+      title={tooltips[quality]}
+    >
+      {quality} quality
+    </span>
+  );
+}
+
+type CalibrationResult = {
+  hr_baseline: number;
+  rmssd_baseline: number;
+  samples_used?: number;
+  avg_motion?: number;
+  quality?: "HIGH" | "MEDIUM" | "LOW";
+};
 
 export const BaselineCalibration = () => {
   const navigate = useNavigate();
@@ -38,7 +68,7 @@ export const BaselineCalibration = () => {
   const [sensorOnline, setSensorOnline] = useState(false);
   const [sensorReady, setSensorReady] = useState(false);
   const [sensorHint, setSensorHint] = useState("Attach the sensor and wait for live readings.");
-  const [result, setResult] = useState<{ hr_baseline: number; rmssd_baseline: number } | null>(null);
+  const [result, setResult] = useState<CalibrationResult | null>(null);
   const [baselineInProgress, setBaselineInProgress] = useState(false);
   const [baselineSampleCount, setBaselineSampleCount] = useState(0);
   const finishTriggeredRef = useRef(false);
@@ -51,9 +81,10 @@ export const BaselineCalibration = () => {
     && hrv !== null
     && Number.isFinite(hrv)
     && hrv > 0
-    && hrv <= 200
+    && hrv <= 250  // Updated to match tightened validator
   );
 
+  // ── On mount: hydrate UI from server state ──────────────────────────────────
   useEffect(() => {
     if (!selectedChild) return;
 
@@ -69,7 +100,7 @@ export const BaselineCalibration = () => {
         if (status.baseline_ready) {
           setIsComplete(true);
           setResult({
-            hr_baseline: Number(status.hr_baseline || selectedChild.hr_baseline || 0),
+            hr_baseline:   Number(status.hr_baseline || selectedChild.hr_baseline || 0),
             rmssd_baseline: Number(status.rmssd_baseline || selectedChild.rmssd_baseline || 0),
           });
           setStatusLabel("Completed");
@@ -92,21 +123,19 @@ export const BaselineCalibration = () => {
     };
 
     void checkStatus();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, [selectedChild]);
 
+  // ── Countdown timer ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!isRunning || !selectedChild) return;
-
     const tick = setInterval(() => {
       setSecondsLeft((prev) => Math.max(0, prev - 1));
     }, 1000);
-
     return () => clearInterval(tick);
   }, [isRunning, selectedChild]);
 
+  // ── Sensor status poll (every 2s) ───────────────────────────────────────────
   useEffect(() => {
     if (!selectedChild) return;
 
@@ -122,41 +151,34 @@ export const BaselineCalibration = () => {
 
         const childStreamRows = (Array.isArray(stream) ? stream : [])
           .filter((row: any) => resolveChildId(row?.child_id) === selectedChild.id)
-          .sort(
-            (a: any, b: any) =>
-              new Date(b?.timestamp || 0).getTime() - new Date(a?.timestamp || 0).getTime(),
-          );
+          .sort((a: any, b: any) => new Date(b?.timestamp || 0).getTime() - new Date(a?.timestamp || 0).getTime());
 
         const latestChildStream = childStreamRows.length ? childStreamRows[0] : null;
-        const latestStreamTs = latestChildStream?.timestamp ? new Date(latestChildStream.timestamp).getTime() : 0;
-        const streamIsFresh = Number.isFinite(latestStreamTs)
-          && latestStreamTs > 0
+        const latestStreamTs    = latestChildStream?.timestamp ? new Date(latestChildStream.timestamp).getTime() : 0;
+        const streamIsFresh     = Number.isFinite(latestStreamTs) && latestStreamTs > 0
           && (Date.now() - latestStreamTs) <= SENSOR_STREAM_STALE_MS;
 
-        const hr = Number(sensor?.heart_rate ?? latestChildStream?.heart_rate);
-        const hrv = Number(sensor?.hrv_rmssd ?? latestChildStream?.hrv_rmssd);
-        const motion = Number(sensor?.motion_level ?? latestChildStream?.motion_level);
-        const sensorOnline = sensor?.device_status === "online";
-        const online = sensorOnline || streamIsFresh;
+        const hr     = Number(sensor?.heart_rate ?? latestChildStream?.heart_rate);
+        const hrv    = Number(sensor?.hrv_rmssd ?? latestChildStream?.hrv_rmssd);
+        const online = sensor?.device_status === "online" || streamIsFresh;
 
         setSensorOnline(online);
 
-        const safeHr = Number.isFinite(hr) ? hr : null;
+        const safeHr  = Number.isFinite(hr)  ? hr  : null;
         const safeHrv = Number.isFinite(hrv) ? hrv : null;
-        const safeMotion = Number.isFinite(motion) ? motion : null;
         setLiveHeartRate(safeHr);
 
         const hasValidPhysiology = isValidSensorReading(safeHr, safeHrv);
-        const ready = online;
-        setSensorReady(ready);
+        setSensorReady(online);
 
         if (!online) {
-          const hasOtherChildData = Array.isArray(stream) && stream.some((row: any) => resolveChildId(row?.child_id) !== selectedChild.id);
-          if (hasOtherChildData) {
-            setSensorHint("Sensor stream detected for another child profile. Select the correct child or reconnect this child device.");
-          } else {
-            setSensorHint("No sensor reading detected. Please attach the sensor.");
-          }
+          const hasOtherChildData = Array.isArray(stream)
+            && stream.some((row: any) => resolveChildId(row?.child_id) !== selectedChild.id);
+          setSensorHint(
+            hasOtherChildData
+              ? "Sensor stream detected for another child profile. Select the correct child or reconnect this child device."
+              : "No sensor reading detected. Please attach the sensor.",
+          );
         } else if (!hasValidPhysiology) {
           setSensorHint("Place finger on sensor and wait for stable readings.");
         } else {
@@ -168,7 +190,7 @@ export const BaselineCalibration = () => {
             const status = await api.getBaselineStatus(selectedChild.id);
             setBaselineSampleCount(Number(status?.baseline_sample_count || 0));
           } catch {
-            // Keep previous sample count when status call fails.
+            // Keep previous sample count on transient failure.
           }
         }
       } catch {
@@ -181,6 +203,7 @@ export const BaselineCalibration = () => {
     return () => clearInterval(sensorPoll);
   }, [baselineInProgress, isRunning, selectedChild]);
 
+  // ── Timer reaches zero → call /baseline/finish ──────────────────────────────
   useEffect(() => {
     if (!isRunning || !selectedChild) return;
     if (secondsLeft > 0 || finishTriggeredRef.current) return;
@@ -192,20 +215,25 @@ export const BaselineCalibration = () => {
     void (async () => {
       try {
         const status = await api.getBaselineStatus(selectedChild.id);
-        const sampleCount = Number(status?.baseline_sample_count || 0);
-        setBaselineSampleCount(sampleCount);
+        setBaselineSampleCount(Number(status?.baseline_sample_count || 0));
 
         const response = await api.finishBaseline(selectedChild.id);
-        const hrBaseline = Number(response?.hr_baseline || 0);
+        const hrBaseline    = Number(response?.hr_baseline || 0);
         const rmssdBaseline = Number(response?.rmssd_baseline || 0);
 
         await updateChild(selectedChild.id, {
-          hr_baseline: hrBaseline,
+          hr_baseline:   hrBaseline,
           rmssd_baseline: rmssdBaseline,
-          isCalibrated: true,
+          isCalibrated:  true,
         });
 
-        setResult({ hr_baseline: hrBaseline, rmssd_baseline: rmssdBaseline });
+        setResult({
+          hr_baseline:    hrBaseline,
+          rmssd_baseline: rmssdBaseline,
+          samples_used:   response?.samples_used,
+          avg_motion:     response?.avg_motion,
+          quality:        response?.quality,
+        });
         setBaselineInProgress(false);
 
         if (Number.isFinite(hrBaseline) && hrBaseline > 0 && Number.isFinite(rmssdBaseline) && rmssdBaseline > 0) {
@@ -213,10 +241,12 @@ export const BaselineCalibration = () => {
           setStatusLabel("Completed");
         } else {
           setStatusLabel("Finished with warning");
-          setError(response?.warning || "Baseline finished, but no usable samples were available.");
+          // response?.message from 422 or 200 with zero-sample warning
+          setError(response?.message || response?.warning || "Baseline finished, but no usable samples were available.");
         }
       } catch (e: any) {
-        setError(e?.response?.data?.message || "Failed to finish baseline calibration.");
+        const msg = e?.response?.data?.message || "Failed to finish baseline calibration.";
+        setError(msg);
         setStatusLabel("Failed");
       } finally {
         setIsRunning(false);
@@ -230,6 +260,7 @@ export const BaselineCalibration = () => {
     return Math.max(0, Math.min(100, (elapsed / BASELINE_DURATION_SECONDS) * 100));
   }, [secondsLeft]);
 
+  // ── Handlers ────────────────────────────────────────────────────────────────
   const handleStart = async () => {
     if (!selectedChild || isRunning || isSubmitting || isComplete) return;
     if (!sensorReady) {
@@ -250,8 +281,57 @@ export const BaselineCalibration = () => {
       setIsRunning(true);
       setStatusLabel("Collecting baseline samples");
     } catch (e: any) {
+      // Fix 2.2 — show 409 conflict message clearly (double-start guard)
       setError(e?.response?.data?.message || "Failed to start baseline calibration.");
       setStatusLabel("Failed");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Fix 2.1 — recalibrate: reset all state and restart
+  const handleRecalibrate = async () => {
+    if (!selectedChild) return;
+    if (!confirm("This will erase your current baseline and start a new 3-minute calibration. Continue?")) return;
+
+    setError("");
+    setIsComplete(false);
+    setResult(null);
+    setSecondsLeft(BASELINE_DURATION_SECONDS);
+    setBaselineSampleCount(0);
+    finishTriggeredRef.current = false;
+    setStatusLabel("Starting baseline session");
+    setIsSubmitting(true);
+
+    try {
+      await api.startBaseline(selectedChild.id);
+      setBaselineInProgress(true);
+      setIsRunning(true);
+      setStatusLabel("Collecting baseline samples");
+    } catch (e: any) {
+      setError(e?.response?.data?.message || "Failed to start recalibration.");
+      setStatusLabel("Failed");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Fix 2.4 — cancel: abort mid-session and reset UI
+  const handleCancel = async () => {
+    if (!selectedChild || !isRunning) return;
+    if (!confirm("Cancel the current baseline calibration? Collected samples will be discarded.")) return;
+
+    setIsSubmitting(true);
+    try {
+      await api.cancelBaseline(selectedChild.id);
+      setIsRunning(false);
+      setBaselineInProgress(false);
+      setBaselineSampleCount(0);
+      setSecondsLeft(BASELINE_DURATION_SECONDS);
+      setStatusLabel("Calibration cancelled");
+      finishTriggeredRef.current = false;
+    } catch (e: any) {
+      setError(e?.response?.data?.message || "Failed to cancel calibration.");
     } finally {
       setIsSubmitting(false);
     }
@@ -271,9 +351,16 @@ export const BaselineCalibration = () => {
     <div className="p-8">
       <div className="mx-auto max-w-3xl space-y-6 rounded-xl border border-border bg-card p-8">
         <div>
-          <h1 className="text-3xl font-bold">Baseline Calibration</h1>
+          {/* Fix 3.3 — show which child is being calibrated */}
+          <h1 className="text-3xl font-bold">
+            Baseline Calibration
+            {selectedChild.child_name && (
+              <span className="ml-2 text-emerald-400"> for {selectedChild.child_name}</span>
+            )}
+          </h1>
+          {/* Fix 3.4 — updated duration from "1 minute" to "3 minutes" */}
           <p className="mt-2 text-muted-foreground">
-            To establish your physiological baseline, please remain calm and sit still for the next 1 minute.
+            To establish your physiological baseline, please remain calm and sit still for the next 3 minutes.
             Do not move your hand or talk during this process.
           </p>
           {!baselineInProgress && !isComplete && (
@@ -321,33 +408,72 @@ export const BaselineCalibration = () => {
           )}
         </div>
 
-        {!isComplete && (
+        {/* Start button — shown when idle and not yet complete */}
+        {!isComplete && !isRunning && (
           <button
             onClick={handleStart}
             disabled={isRunning || isSubmitting || !sensorReady}
             className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-5 py-3 font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {(isRunning || isSubmitting) && <Loader2 className="h-4 w-4 animate-spin" />}
-            {isRunning ? "Collecting Baseline Data" : "Start Baseline Calibration"}
+            {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
+            Start Baseline Calibration
           </button>
         )}
 
+        {/* Fix 2.4 — Cancel button — shown only while actively collecting */}
+        {isRunning && !isComplete && (
+          <div className="flex items-center gap-3">
+            <div className="inline-flex items-center gap-2 rounded-lg bg-emerald-600/20 border border-emerald-600/40 px-5 py-3 font-semibold text-emerald-300">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Collecting Baseline Data…
+            </div>
+            <button
+              onClick={handleCancel}
+              disabled={isSubmitting}
+              className="inline-flex items-center gap-2 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm font-semibold text-red-300 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <XCircle className="h-4 w-4" />
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {/* Success card */}
         {isComplete && result && (
           <div className="space-y-4 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-5">
-            <div className="flex items-center gap-2 text-emerald-300">
+            <div className="flex items-center gap-3 text-emerald-300">
               <ShieldCheck className="h-5 w-5" />
               <p className="font-semibold">Baseline calibration completed successfully.</p>
+              {/* Fix 3.2 — quality badge */}
+              <QualityBadge quality={result.quality ?? null} />
             </div>
             <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
               <p>Heart Rate Baseline: <strong>{result.hr_baseline} bpm</strong></p>
               <p>HRV Baseline: <strong>{result.rmssd_baseline} ms</strong></p>
+              {result.samples_used !== undefined && (
+                <p className="text-sm text-muted-foreground">Samples used: {result.samples_used}</p>
+              )}
+              {result.avg_motion !== undefined && (
+                <p className="text-sm text-muted-foreground">Avg. motion: {result.avg_motion} m/s²</p>
+              )}
             </div>
-            <button
-              onClick={() => navigate("/app/hobby-session")}
-              className="rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white transition hover:bg-emerald-700"
-            >
-              Continue To Hobby Monitoring
-            </button>
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() => navigate("/app/hobby-session")}
+                className="rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white transition hover:bg-emerald-700"
+              >
+                Continue To Hobby Monitoring
+              </button>
+              {/* Fix 2.1 — recalibrate button */}
+              <button
+                onClick={handleRecalibrate}
+                disabled={isSubmitting}
+                className="inline-flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm font-semibold text-amber-300 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                Recalibrate
+              </button>
+            </div>
           </div>
         )}
       </div>
