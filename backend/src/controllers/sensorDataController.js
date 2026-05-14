@@ -56,6 +56,8 @@ async function ingestSensorData(req, res) {
       motion_level,
       spo2,
       restlessness_index,
+      session_id,
+      esp32_uptime_ms,
     } = req.body;
 
     if (req.sensorPayloadSource === "serial-bridge") {
@@ -79,11 +81,16 @@ async function ingestSensorData(req, res) {
     let resolvedChildId = child_id;
 
     if (typeof child_id === "string" && child_id) {
+      // child_id was explicitly provided — look it up and REJECT if not found.
+      // Do NOT silently fall back to another child; that masked data-routing bugs before.
       child = await Child.findById(child_id);
+      if (!child) {
+        return res.status(404).json({ message: `Child with id=${child_id} not found. Provide a valid child_id or omit it to use the most recently created profile.` });
+      }
     }
 
     if (!child) {
-      // Fallback: use the most recently created child profile if no child_id is provided
+      // No child_id supplied — fall back to the most recently created child profile.
       child = await Child.findOne().sort({ createdAt: -1 });
       resolvedChildId = child ? String(child._id) : null;
     }
@@ -101,6 +108,10 @@ async function ingestSensorData(req, res) {
     // Track device liveness even for warm-up/invalid physiological values.
     await Child.updateOne({ _id: resolvedChildId }, { sensor_last_seen_at: eventTime });
 
+    // NOTE: baseline_in_progress is read here once from the in-memory child document.
+    // Race condition: if the user stops calibration mid-request, this flag may be stale
+    // and a sample will still be created for the just-ended session.
+    // This will be addressed in Step 3 (Baseline review) with an atomic findOne + session check.
     const rawActivity = child.baseline_in_progress ? "Baseline Calibration" : "Sensor Stream";
     const rawRow = await SensorData.create({
       child_id: resolvedChildId,
@@ -110,6 +121,8 @@ async function ingestSensorData(req, res) {
       motion_level,
       spo2,
       restlessness_index,
+      session_id: session_id ?? null,
+      esp32_uptime_ms: esp32_uptime_ms ?? null,
       timestamp: eventTime,
     });
 
@@ -169,7 +182,7 @@ async function ingestSensorData(req, res) {
     await rawRow.save();
 
     const resultRow = await EngagementResult.create({
-      child_id,
+      child_id: resolvedChildId,
       activity,
       arousal: prediction.arousal,
       valence: prediction.valence,

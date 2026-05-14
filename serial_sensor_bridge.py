@@ -124,25 +124,22 @@ def transform_payload(raw: dict[str, Any], child_id: str | None = None) -> dict[
     motion_level = round(abs(float(motion_level_raw) - 9.8), 3)
 
     transformed: dict[str, Any] = {
-        "heart_rate":  int(round(float(heart_rate))),
-        "hrv_rmssd":   int(round(float(hrv_rmssd))),
+        # Preserve 1 decimal place of precision for trend analysis.
+        # The schema accepts Number so this is safe to store fractional bpm/ms.
+        "heart_rate":   round(float(heart_rate), 1),
+        "hrv_rmssd":    round(float(hrv_rmssd), 1),
         "motion_level": motion_level,
+        "session_id":         str(session_id) if session_id is not None else None,
+        "esp32_uptime_ms":    int(timestamp) if is_number(timestamp) else None,
+        "restlessness_index": round(float(restlessness), 6) if is_number(restlessness) else None,
+        "spo2":               int(round(float(spo2))) if is_number(spo2) and 70 <= int(round(float(spo2))) <= 100 else None,
     }
 
     if child_id:
         transformed["child_id"] = child_id
-    if session_id is not None:
-        transformed["session_id"] = str(session_id)
-    if timestamp is not None and is_number(timestamp):
-        transformed["timestamp"] = int(timestamp)
-    if is_number(spo2):
-        clamped_spo2 = int(round(float(spo2)))
-        if 0 <= clamped_spo2 <= 100:
-            transformed["spo2"] = clamped_spo2
-        else:
-            print(f"[BRIDGE WARNING] spo2={clamped_spo2} is out of range (0–100) — omitting from payload")
-    if is_number(restlessness):
-        transformed["restlessness_index"] = round(float(restlessness), 6)
+
+    # Strip None values — the backend accepts absence, not explicit null
+    transformed = {k: v for k, v in transformed.items() if v is not None}
 
     return transformed
 
@@ -244,7 +241,7 @@ def main() -> int:
 
                 print(f"[BRIDGE] Sending payload: {json.dumps(payload)}")
 
-                # ── POST with retry ────────────────────────────────────────
+                # ── POST with tiered retry ─────────────────────────────────────
                 for attempt in range(1, 4):
                     try:
                         response = requests.post(
@@ -253,13 +250,28 @@ def main() -> int:
                             headers={"Content-Type": "application/json"},
                             timeout=10,
                         )
-                        if response.status_code in (200, 201, 202):
-                            print(f"[BRIDGE] Backend accepted payload (HTTP {response.status_code})")
+                        status = response.status_code
+                        if status in (200, 201, 202):
+                            # Success — log and stop retrying
+                            print(f"[BRIDGE] Backend accepted payload (HTTP {status})")
+                            if response.text:
+                                print(f"[BRIDGE] Response: {response.text}")
+                            break
+                        elif status == 408 or status == 429 or status >= 500:
+                            # Transient failure — retry
+                            delay = 2.0 if status == 429 else 1.0
+                            label = {408: "timeout", 429: "rate-limited"}.get(status, f"server error {status}")
+                            print(f"[BRIDGE ERROR] Backend returned HTTP {status} ({label}), attempt {attempt}/3")
+                            if response.text:
+                                print(f"[BRIDGE] Response: {response.text}")
+                            if attempt < 3:
+                                time.sleep(delay)
                         else:
-                            print(f"[BRIDGE ERROR] Backend returned HTTP {response.status_code}")
-                        if response.text:
-                            print(f"[BRIDGE] Response: {response.text}")
-                        break
+                            # 4xx client error — payload is invalid; retrying won't help
+                            print(f"[BRIDGE ERROR] Backend returned HTTP {status} (permanent client error — no retry)")
+                            if response.text:
+                                print(f"[BRIDGE] Response: {response.text}")
+                            break
                     except requests.RequestException as exc:
                         print(f"[BRIDGE ERROR] POST failed (attempt {attempt}/3): {exc}")
                         if attempt < 3:
