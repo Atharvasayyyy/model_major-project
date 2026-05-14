@@ -216,6 +216,7 @@ async function ingestSensorData(req, res) {
       child_id:            resolvedChildId,
       activity_session_id: activitySessionId, // Fix 8 — links score to session
       activity,
+      activity_category,   // Fix 5 — store at write-time for fast category analytics (Step 8)
       arousal:          prediction.arousal,
       valence:          prediction.valence,
       engagement_score: prediction.engagement_score,
