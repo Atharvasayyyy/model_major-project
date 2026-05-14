@@ -13,7 +13,8 @@ const debugRoutes = require("./src/routes/debugRoutes");
 const activityRoutes = require("./src/routes/activityRoutes");
 
 const analyticsRoutes = require("./src/routes/analyticsRoutes");
-const alertsRoutes = require("./src/routes/alertsRoutes");
+const alertsRoutes    = require("./src/routes/alertsRoutes");
+const aiRoutes        = require("./src/routes/aiRoutes");
 
 dotenv.config();
 connectDB();
@@ -57,7 +58,8 @@ app.use("/api/sensor-data", sensorDataRoutes);
 app.use("/api/sensor-status", authMiddleware, sensorStatusRoutes);
 app.use("/api/debug", authMiddleware, debugRoutes);
 app.use("/api/analytics", authMiddleware, analyticsRoutes);
-app.use("/api/alerts", authMiddleware, alertsRoutes);
+app.use("/api/alerts",    authMiddleware, alertsRoutes);
+app.use("/api/ai",        aiRoutes);  // auth handled inside aiRoutes
 
 app.use((err, _req, res, _next) => {
   console.error(err);

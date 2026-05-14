@@ -34,6 +34,15 @@ HEART_RATE_MIN = 40
 HEART_RATE_MAX = 200
 HRV_RMSSD_MAX = 500   # ms; above this indicates no finger on sensor
 
+# ESP32 reset fingerprint strings (boot ROM log)
+ESP32_RESET_MARKERS = ("ets Jul", "rst:0x1", "POWERON_RESET")
+
+# How many consecutive sub-40 BPM readings before we print a single warning
+LOW_HR_STREAK_WARNING_AT = 5
+
+# How many consecutive 2-second no-device polls before we print a warning
+NO_DEVICE_STREAK_WARNING_AT = 3
+
 
 def normalize_api_url(api_url: str) -> str:
     normalized = api_url.rstrip("/")
@@ -202,18 +211,28 @@ def main() -> int:
     print("-" * 60)
 
     # ── Main serial loop ───────────────────────────────────────────────────
+    no_device_streak = 0
     while True:
         ser: serial.Serial | None = None
         try:
             resolved_port = resolve_port(args.port)
             if not resolved_port:
-                print("[BRIDGE WARN] No serial device detected. Is the ESP32 plugged in? Retrying in 2s...")
+                no_device_streak += 1
+                if no_device_streak >= NO_DEVICE_STREAK_WARNING_AT:
+                    print(
+                        f"[BRIDGE WARN] No serial device for "
+                        f"{no_device_streak * 2}s — is the ESP32 plugged in?"
+                    )
                 time.sleep(2)
                 continue
+
+            # Successful port resolution — reset the no-device streak
+            no_device_streak = 0
 
             ser = open_serial(resolved_port, args.baud, args.timeout)
             print(f"[BRIDGE] Serial connected on {resolved_port} @ {args.baud} baud.")
             frame_buffer = ""
+            low_hr_streak = 0   # reset per connection
 
             while True:
                 line = ser.readline().decode("utf-8", errors="ignore").strip()
@@ -222,13 +241,43 @@ def main() -> int:
 
                 print(f"[SERIAL] {line}")
 
+                # ── ESP32 reset detection ──────────────────────────────────
+                if any(marker in line for marker in ESP32_RESET_MARKERS):
+                    print("\n" + "=" * 60)
+                    print("[BRIDGE WARNING] ESP32 RESET DETECTED!")
+                    print("[BRIDGE WARNING] Cause: USB power brownout or watchdog timeout.")
+                    print("[BRIDGE WARNING] Fix:   use a better USB cable or a rear USB port.")
+                    print("=" * 60 + "\n")
+                    frame_buffer = ""   # discard any partial JSON frame
+                    low_hr_streak = 0
+                    continue
+
                 raw, frame_buffer = try_parse_serial_json(line, frame_buffer)
                 if raw is None:
                     continue
 
-                # ── Sensor validity diagnostic ─────────────────────────────
+                # ── Sensor validity — streak-aware low-HR warning ──────────
                 heart_rate = raw.get("heartRate")
                 hrv_rmssd  = raw.get("hrvRmssd")
+
+                # Fast-path: low heart rate streak handling
+                if heart_rate is not None and is_number(heart_rate) and heart_rate < HEART_RATE_MIN:
+                    low_hr_streak += 1
+                    if low_hr_streak == LOW_HR_STREAK_WARNING_AT:
+                        print(
+                            f"[BRIDGE] \u26a0 Sensor losing lock — "
+                            f"{LOW_HR_STREAK_WARNING_AT}+ consecutive readings below "
+                            f"{HEART_RATE_MIN} bpm."
+                        )
+                        print("[BRIDGE] Tips: keep finger steady, don't press too hard, cover both LEDs.")
+                    # Suppress per-packet spam once streak threshold is reached
+                    if low_hr_streak >= LOW_HR_STREAK_WARNING_AT:
+                        continue
+                else:
+                    if low_hr_streak >= LOW_HR_STREAK_WARNING_AT:
+                        print("[BRIDGE] \u2713 Sensor lock restored.")
+                    low_hr_streak = 0
+
                 valid, reason = is_valid_sensor_reading(heart_rate, hrv_rmssd)
                 if not valid:
                     print(f"[BRIDGE WARNING] Sensor reading invalid — {reason}")

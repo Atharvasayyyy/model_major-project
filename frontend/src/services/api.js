@@ -337,4 +337,22 @@ export const api = {
   async login(email, password) {
     return loginUser({ email, password });
   },
+
+  // ─── AI / Mistral endpoints ────────────────────────────────────────────────
+  async aiChat(childId, message, history = []) {
+    const { data } = await apiClient.post("/ai/chat", { child_id: childId, message, history });
+    return data;
+  },
+  async aiInsights(childId) {
+    const { data } = await apiClient.get(`/ai/insights/${childId}`);
+    return data;
+  },
+  async aiRecommendations(childId) {
+    const { data } = await apiClient.get(`/ai/recommendations/${childId}`);
+    return data;
+  },
+  async aiSummary(childId, period = "weekly") {
+    const { data } = await apiClient.get(`/ai/summary/${childId}?period=${period}`);
+    return data;
+  },
 };

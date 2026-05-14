@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useChildren } from "../context/ChildrenContext";
-import { TrendingUp, Clock, Activity, BarChart2 } from "lucide-react";
+import { TrendingUp, Clock, Activity, BarChart2, Sparkles, Target, RefreshCw } from "lucide-react";
 import { api } from "../services/api";
 import {
   BarChart,
@@ -205,6 +205,11 @@ export const Analytics = () => {
   const [todLoading, setTodLoading] = useState(false);
   const [tofActivity, setTofActivity] = useState("");
 
+  // AI Recommendations
+  const [recommendations, setRecommendations] = useState<any[]>([]);
+  const [recsLoading,     setRecsLoading]     = useState(false);
+  const [recsLastFetched, setRecsLastFetched] = useState<Date | null>(null);
+
   // has any data at all?
   const hasAnyData =
     summary.sample_count > 0 ||
@@ -261,6 +266,25 @@ export const Analytics = () => {
 
     return () => { alive = false; };
   }, [selectedChild, tofActivity]);
+
+  // ── AI Recommendations (once per child change) ────────────────────────
+  const fetchRecommendations = useCallback(async () => {
+    if (!selectedChild) return;
+    setRecsLoading(true);
+    try {
+      const res = await api.aiRecommendations(selectedChild.id);
+      setRecommendations(res.recommendations ?? []);
+      setRecsLastFetched(new Date());
+    } catch {
+      // non-critical
+    } finally {
+      setRecsLoading(false);
+    }
+  }, [selectedChild]);
+
+  useEffect(() => {
+    void fetchRecommendations();
+  }, [fetchRecommendations]);
 
   // ── no child selected ────────────────────────────────────────────────────
   if (!selectedChild) {
@@ -505,6 +529,66 @@ export const Analytics = () => {
               </div>
             )}
           </div>
+        </section>
+      )}
+
+      {/* ── AI RECOMMENDATIONS ───────────────────────────────────────── */}
+      {(recommendations.length > 0 || recsLoading) && (
+        <section>
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="flex items-center gap-2 text-xl font-bold">
+              <Target className="text-pink-400" size={20} />
+              AI Recommendations
+              <span className="rounded-full bg-pink-500/20 px-2 py-0.5 text-xs text-pink-300">
+                ✨ Smart Suggestions
+              </span>
+            </h2>
+            <button
+              onClick={() => void fetchRecommendations()}
+              disabled={recsLoading}
+              className="flex items-center gap-1 text-xs text-muted-foreground transition hover:text-foreground"
+            >
+              <RefreshCw size={13} className={recsLoading ? "animate-spin" : ""} />
+              {recsLastFetched
+                ? recsLastFetched.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                : "Refresh"}
+            </button>
+          </div>
+
+          {recsLoading ? (
+            <div className="flex items-center justify-center gap-2 rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">
+              <RefreshCw size={14} className="animate-spin" /> Generating recommendations…
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {recommendations.map((rec: any, idx: number) => {
+                const borderBg =
+                  rec.priority === "high"   ? "border-red-500/40   bg-red-500/5"
+                  : rec.priority === "medium" ? "border-amber-500/40 bg-amber-500/5"
+                  :                             "border-blue-500/40  bg-blue-500/5";
+                const badgeCls =
+                  rec.priority === "high"   ? "bg-red-500/20   text-red-300"
+                  : rec.priority === "medium" ? "bg-amber-500/20 text-amber-300"
+                  :                             "bg-blue-500/20  text-blue-300";
+                return (
+                  <div key={idx} className={`rounded-lg border-2 p-5 ${borderBg}`}>
+                    <div className="mb-3 flex items-start justify-between">
+                      <h3 className="font-bold text-lg">{rec.title}</h3>
+                      <span className={`rounded px-2 py-1 text-xs font-semibold uppercase ${badgeCls}`}>
+                        {rec.priority}
+                      </span>
+                    </div>
+                    <p className="mb-2 text-sm text-muted-foreground">
+                      <span className="font-semibold text-muted-foreground/80">Why: </span>{rec.reason}
+                    </p>
+                    <p className="text-sm text-foreground">
+                      <span className="font-semibold text-emerald-400">→ Action: </span>{rec.action}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
       )}
 

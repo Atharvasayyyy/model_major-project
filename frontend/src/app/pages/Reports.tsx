@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router";
-import { FileText, TrendingUp, TrendingDown, Award, AlertTriangle, Clock } from "lucide-react";
+import { FileText, TrendingUp, TrendingDown, Award, AlertTriangle, Clock, Sparkles, RefreshCw } from "lucide-react";
 import { useChildren } from "../context/ChildrenContext";
 import { api } from "../services/api";
 
@@ -54,8 +54,25 @@ export const Reports = () => {
   const [overview,  setOverview]  = useState<any>(null);
   const [insights,  setInsights]  = useState<any>(null);
   const [timeStats, setTimeStats] = useState<any>(null);
-  const [alerts,    setAlerts]    = useState<any[]>([]);
-  const [loading,   setLoading]   = useState(false);
+  const [alerts,       setAlerts]       = useState<any[]>([]);
+  const [loading,      setLoading]       = useState(false);
+
+  const [aiSummaryText,    setAiSummaryText]    = useState("");
+  const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
+
+  const fetchAiSummary = async (child: typeof selectedChild, w: typeof win) => {
+    if (!child) return;
+    setAiSummaryLoading(true);
+    try {
+      const period = w === "today" ? "daily" : w === "30d" ? "monthly" : "weekly";
+      const res = await api.aiSummary(child.id, period);
+      setAiSummaryText(res.summary ?? "");
+    } catch {
+      setAiSummaryText("");
+    } finally {
+      setAiSummaryLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!selectedChild) return;
@@ -78,6 +95,7 @@ export const Reports = () => {
     };
 
     void fetchAll();
+    void fetchAiSummary(selectedChild, win);
     return () => { alive = false; };
   }, [selectedChild, win]);
 
@@ -134,6 +152,43 @@ export const Reports = () => {
             </button>
           ))}
         </div>
+      </div>
+
+      {/* ── AI SUMMARY PANEL ──────────────────────────────────────────── */}
+      <div className="rounded-xl border border-purple-500/30 bg-gradient-to-br from-purple-900/20 via-blue-900/20 to-indigo-900/20 p-6">
+        <div className="mb-3 flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 p-2">
+              <Sparkles className="text-white" size={20} />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold">AI-Generated Summary</h2>
+              <p className="text-xs text-muted-foreground">
+                Personalised insights for {selectedChild?.child_name} · Powered by Mistral AI
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => void fetchAiSummary(selectedChild, win)}
+            disabled={aiSummaryLoading}
+            className="rounded p-2 text-muted-foreground transition hover:text-foreground"
+            title="Regenerate summary"
+          >
+            <RefreshCw size={16} className={aiSummaryLoading ? "animate-spin" : ""} />
+          </button>
+        </div>
+
+        {aiSummaryLoading ? (
+          <div className="flex items-center gap-2 text-sm italic text-muted-foreground">
+            <RefreshCw size={13} className="animate-spin" /> Analysing patterns and generating summary…
+          </div>
+        ) : aiSummaryText ? (
+          <p className="leading-relaxed text-gray-200">{aiSummaryText}</p>
+        ) : (
+          <p className="italic text-muted-foreground">
+            No summary available yet. Complete activity sessions to generate insights.
+          </p>
+        )}
       </div>
 
       {/* ── loading ──────────────────────────────────────────────────────────── */}

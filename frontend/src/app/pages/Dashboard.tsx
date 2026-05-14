@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router";
 import { useChildren } from "../context/ChildrenContext";
-import { Heart, Activity, Zap, Bell, Droplets, Trophy, Radio } from "lucide-react";
+import { Heart, Activity, Zap, Bell, Droplets, Trophy, Radio, Sparkles, RefreshCw } from "lucide-react";
 import {
   LineChart,
   Line,
@@ -106,6 +106,11 @@ export const Dashboard = () => {
   // Ring buffer: last 30 live readings
   const [signalHistory, setSignalHistory] = useState<any[]>([]);
 
+  // AI Insights (fetched once per child, not on poll)
+  const [aiInsights,   setAiInsights]   = useState<any[]>([]);
+  const [aiLoading,    setAiLoading]    = useState(false);
+  const [aiLastFetched,setAiLastFetched]= useState<Date | null>(null);
+
   // ── main polling effect (every 3s) ─────────────────────────────────────────
   useEffect(() => {
     if (!selectedChild) return;
@@ -152,6 +157,25 @@ export const Dashboard = () => {
       })
       .catch(() => {});
   }, [selectedChild]);
+
+  // ── AI Insights (once per child, then refresh on demand) ───────────────────
+  const fetchAIInsights = useCallback(async () => {
+    if (!selectedChild) return;
+    setAiLoading(true);
+    try {
+      const res = await api.aiInsights(selectedChild.id);
+      setAiInsights(res.insights ?? []);
+      setAiLastFetched(new Date());
+    } catch {
+      // silently fail — insights are non-critical
+    } finally {
+      setAiLoading(false);
+    }
+  }, [selectedChild]);
+
+  useEffect(() => {
+    void fetchAIInsights();
+  }, [fetchAIInsights]);
 
   // ── append sensorStatus to ring buffer ─────────────────────────────────────
   useEffect(() => {
@@ -366,6 +390,56 @@ export const Dashboard = () => {
           </span>
         </div>
       )}
+
+      {/* ── AI INSIGHTS PANEL ─────────────────────────────────────────────── */}
+      <div>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="flex items-center gap-2 text-lg font-bold">
+            <Sparkles className="text-purple-400" size={18} />
+            AI Insights
+            <span className="rounded-full bg-purple-500/20 px-2 py-0.5 text-xs text-purple-300">
+              Mistral
+            </span>
+          </h2>
+          <button
+            onClick={() => void fetchAIInsights()}
+            disabled={aiLoading}
+            className="flex items-center gap-1 text-xs text-muted-foreground transition hover:text-foreground"
+            title="Regenerate insights"
+          >
+            <RefreshCw size={13} className={aiLoading ? "animate-spin" : ""} />
+            {aiLastFetched && `${aiLastFetched.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
+          </button>
+        </div>
+
+        {aiLoading && aiInsights.length === 0 ? (
+          <div className="flex items-center justify-center gap-2 rounded-lg border border-border bg-card p-5 text-sm text-muted-foreground">
+            <RefreshCw size={14} className="animate-spin" /> Generating insights…
+          </div>
+        ) : aiInsights.length === 0 ? (
+          <div className="rounded-lg border border-border bg-card p-5 text-center text-sm text-muted-foreground">
+            Complete activity sessions to unlock AI insights.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            {aiInsights.map((ins: any, idx: number) => {
+              const styles =
+                ins.type === "positive" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                : ins.type === "warning"  ? "border-amber-500/30  bg-amber-500/10  text-amber-300"
+                :                          "border-blue-500/30   bg-blue-500/10   text-blue-300";
+              return (
+                <div key={idx} className={`rounded-lg border p-4 ${styles}`}>
+                  <div className="mb-2 flex items-center gap-2">
+                    <span className="text-xl">{ins.icon ?? "💡"}</span>
+                    <span className="text-sm font-semibold">{ins.title}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{ins.description}</p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {/* ── CHARTS ────────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">

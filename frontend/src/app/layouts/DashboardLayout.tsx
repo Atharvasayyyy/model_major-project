@@ -1,5 +1,6 @@
 import { Outlet, useNavigate, useLocation, Navigate } from "react-router";
 import { useEffect, useState } from "react";
+import AIChatbot from "../components/AIChatbot";
 import { useAuth } from "../context/AuthContext";
 import { useChildren } from "../context/ChildrenContext";
 import { useSensorData } from "../context/SensorDataContext";
@@ -213,6 +214,9 @@ export const DashboardLayout = () => {
       <main className="flex-1 overflow-auto">
         <Outlet />
       </main>
+
+      {/* Floating AI chatbot — appears on every page */}
+      <AIChatbot />
     </div>
   );
 };
