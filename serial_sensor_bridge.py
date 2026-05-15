@@ -32,7 +32,8 @@ AUTO_PORT_KEYWORDS = ("cp210", "ch340", "usb", "uart", "silicon labs")
 # Sensor validity thresholds — readings outside these ranges are skipped
 HEART_RATE_MIN = 40
 HEART_RATE_MAX = 200
-HRV_RMSSD_MAX = 500   # ms; above this indicates no finger on sensor
+HRV_RMSSD_MAX = 350   # ms; match backend — allows sensor warmup readings (up to ~300ms
+                      #   in first 5-10s); above 350ms is almost certainly a false beat artifact
 
 # ESP32 reset fingerprint strings (boot ROM log)
 ESP32_RESET_MARKERS = ("ets Jul", "rst:0x1", "POWERON_RESET")
@@ -96,14 +97,14 @@ def is_valid_sensor_reading(heart_rate: Any, hrv_rmssd: Any) -> tuple[bool, str]
     """
     Returns (is_valid, reason_string).
     heartRate=0 means no finger is on the MAX30100.
-    hrvRmssd > 500 ms is physiologically impossible and also indicates no finger.
+    hrvRmssd > 350 ms after warmup is physiologically implausible and indicates a false beat.
     """
     if not is_number(heart_rate) or heart_rate == 0:
         return False, f"heartRate={heart_rate} (no finger detected on MAX30100)"
     # Accept hrvRmssd = 0 (sensor warmup — only 1 beat detected so far, HRV needs 2+)
     # Only reject NEGATIVE values or values above the physiological maximum.
     if not is_number(hrv_rmssd) or hrv_rmssd < 0 or hrv_rmssd > HRV_RMSSD_MAX:
-        return False, f"hrvRmssd={hrv_rmssd} (out of plausible range 0 to {HRV_RMSSD_MAX} ms)"
+        return False, f"hrvRmssd={hrv_rmssd} above plausible range (max {HRV_RMSSD_MAX}ms — likely artifact)"
     if heart_rate < HEART_RATE_MIN or heart_rate > HEART_RATE_MAX:
         return False, f"heartRate={heart_rate} (out of valid range {HEART_RATE_MIN}-{HEART_RATE_MAX} bpm)"
     return True, ""

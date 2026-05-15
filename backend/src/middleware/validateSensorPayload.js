@@ -8,11 +8,13 @@ function isValidNumber(value) {
 const HEART_RATE_MIN    = 40;
 const HEART_RATE_MAX    = 200;
 // Healthy adult RMSSD: 10-150ms. Children: 20-200ms.
-// Values above 250ms are virtually always artifacts (missed beats, RR calculation errors,
-// or sensor disconnection). 500ms was far too permissive.
+// Values above 350ms are virtually always artifacts (missed beats, RR calculation errors,
+// or sensor disconnection). Warmup readings (first 5-10s after finger placement) can
+// legitimately reach ~300ms before the MAX30100 locks in; 350ms is the safe ceiling.
 const HRV_RMSSD_MIN     = 0;    // ms — 0 is valid: sensor warming up, only 1 beat captured yet
                                  //        engagement scoring already skips hrv_rmssd=0 readings
-const HRV_RMSSD_MAX     = 250;  // ms — above this = sensor artifact
+const HRV_RMSSD_MAX     = 350;  // ms — accommodates sensor warmup; real human RMSSD rarely
+                                 //        exceeds 200ms but warmup readings can reach 300ms
 // After gravity removal (abs(raw - 9.8)), normal rest = ~0, vigorous shake = 5-15 m/s².
 // 30 m/s² is the absolute ceiling for any human movement.
 // Anything higher (e.g. 111 m/s²) is an MPU6050 I2C glitch or dropped packet.
@@ -122,7 +124,7 @@ function validateSensorPayload(req, res, next) {
 
   if (hrv_rmssd < HRV_RMSSD_MIN || hrv_rmssd > HRV_RMSSD_MAX) {
     return res.status(400).json({
-      message: `Invalid sensor reading: hrv_rmssd=${hrv_rmssd} is outside plausible range (${HRV_RMSSD_MIN}–${HRV_RMSSD_MAX} ms). Likely sensor artifact — check finger contact on MAX30100.`,
+      message: `Invalid sensor reading: hrv_rmssd=${hrv_rmssd} is outside plausible range (1-350 ms). Likely sensor artifact — check finger contact on MAX30100.`,
       details: { hrv_rmssd },
     });
   }
